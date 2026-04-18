@@ -1,0 +1,9 @@
+{
+  "vm": "dev",
+  "snapshot": "clean-state",
+  "host_ro": "/Users/me/src/my-repo",
+  "host_rw": "/Users/me/.ghostvm-artifacts",
+  "cmd": "swift test",
+  "cmd_timeout": 3600,
+  "keep_running": false
+}
