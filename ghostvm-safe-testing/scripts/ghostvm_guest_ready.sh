@@ -66,21 +66,23 @@ done
 if [[ -z "$BUNDLE_PATH" ]]; then
     [[ -n "$VM_NAME" ]] || action_required "Missing --vm <Name> (or pass --bundle)"
     ROOT_DIR="$(
-        python3 - <<PY
-import os,sys
+        python3 - "$ROOT_DIR" <<'PY'
+import os
+import sys
+
 print(os.path.abspath(os.path.expanduser(sys.argv[1])))
 PY
-        "$ROOT_DIR"
     )"
     BUNDLE_PATH="$ROOT_DIR/$VM_NAME.GhostVM"
 fi
 
 BUNDLE_PATH="$(
-    python3 - <<PY
-import os,sys
+    python3 - "$BUNDLE_PATH" <<'PY'
+import os
+import sys
+
 print(os.path.abspath(os.path.expanduser(sys.argv[1])))
 PY
-    "$BUNDLE_PATH"
 )"
 
 VM_NAME="${VM_NAME:-$(basename "$BUNDLE_PATH" .GhostVM)}"

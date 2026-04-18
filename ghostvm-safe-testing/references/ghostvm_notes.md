@@ -6,14 +6,26 @@ GhostVM builds a **single VirtioFS device** that can expose **multiple** host di
 
 Inside the guest:
 
-- Each shared directory is auto-mounted under:
+- The shared folders are exposed via a single **AppleVirtIOFS** volume (VirtioFS), typically mounted under:
 
 ```text
-/Volumes/<share-name>
+/Volumes/<virtiofs-volume>
+```
+
+- Each configured shared folder appears as a directory under that volume:
+
+```text
+/Volumes/<virtiofs-volume>/<share-name>
 ```
 
 - `<share-name>` is the **leaf directory name** of the host path.
-  - Example: host `/Users/me/src/my-repo` → guest `/Volumes/my-repo`
+  - Example: host `/Users/me/src/my-repo` → guest `/Volumes/My Shared Files/my-repo`
+
+You can discover the mountpoint by running in the guest:
+
+```bash
+/sbin/mount | /usr/bin/grep -m 1 AppleVirtIOFS
+```
 
 If two shares have the same leaf name, GhostVM disambiguates by appending `-2`, `-3`, etc.
 

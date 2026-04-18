@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -18,6 +19,32 @@ class TestSafeTestOrdering(unittest.TestCase):
             i_config,
             "safe runner must revert snapshot before editing config.json (snapshots include config.json)",
         )
+
+    def test_preserves_exit_code_from_host_api_exec(self) -> None:
+        text = SAFE_TEST_SH.read_text(encoding="utf-8")
+        self.assertNotIn('if ! "$EXEC_SH"', text)
+        self.assertIn('if "$EXEC_SH"', text)
+
+    def test_guest_run_script_captures_exit_code_on_failure(self) -> None:
+        text = SAFE_TEST_SH.read_text(encoding="utf-8")
+        m = re.search(
+            r'cat >"\$GUEST_RUN_SCRIPT_HOST" <<GUESTSH\n(.*?)\nGUESTSH\n',
+            text,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(m, "expected guest_run.sh heredoc")
+        guest = m.group(1)
+
+        # Guard against `set -e` causing early exit before exporting artifacts.
+        i_cmd = guest.find('/bin/zsh -lc "\\$CMD"')
+        self.assertNotEqual(i_cmd, -1, "expected user command invocation in guest script")
+        self.assertIn("set +e", guest[:i_cmd])
+        self.assertIn("EXIT_CODE=\\$?", guest[i_cmd : i_cmd + 200])
+        self.assertIn('print "\\$EXIT_CODE" >"\\$RUN_DIR/exit_code"', guest)
+
+    def test_safe_runner_detects_virtiofs_mountpoint(self) -> None:
+        text = SAFE_TEST_SH.read_text(encoding="utf-8")
+        self.assertIn("AppleVirtIOFS", text)
 
 
 if __name__ == "__main__":

@@ -114,8 +114,8 @@ def main() -> int:
 
     if not ns.dry_run:
         print(f"ok: updated sharedFolders in {config_path}")
-        print(f"  RO: {ro} -> /Volumes/{ro.name} (guest)")
-        print(f"  RW: {rw} -> /Volumes/{rw.name} (guest)")
+        print(f"  RO: {ro} (guest: <AppleVirtIOFS mount>/{ro.name})")
+        print(f"  RW: {rw} (guest: <AppleVirtIOFS mount>/{rw.name})")
 
     return 0
 

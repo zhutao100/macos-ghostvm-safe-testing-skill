@@ -112,21 +112,23 @@ fi
 if [[ -z "$BUNDLE_PATH" ]]; then
     [[ -n "$VM_NAME" ]] || action_required "Missing --vm <Name> (or pass --bundle)"
     ROOT_DIR="$(
-        python3 - <<PY
-import os,sys
+        python3 - "$ROOT_DIR" <<'PY'
+import os
+import sys
+
 print(os.path.abspath(os.path.expanduser(sys.argv[1])))
 PY
-        "$ROOT_DIR"
     )"
     BUNDLE_PATH="$ROOT_DIR/$VM_NAME.GhostVM"
 fi
 
 BUNDLE_PATH="$(
-    python3 - <<PY
-import os,sys
+    python3 - "$BUNDLE_PATH" <<'PY'
+import os
+import sys
+
 print(os.path.abspath(os.path.expanduser(sys.argv[1])))
 PY
-    "$BUNDLE_PATH"
 )"
 
 VM_NAME="${VM_NAME:-$(basename "$BUNDLE_PATH" .GhostVM)}"
@@ -146,20 +148,22 @@ fi
 
 # Normalize RO/RW.
 RO_ABS="$(
-    python3 - <<PY
-import os,sys
-p=os.path.abspath(os.path.expanduser(sys.argv[1]))
+    python3 - "$RO_PATH" <<'PY'
+import os
+import sys
+
+p = os.path.abspath(os.path.expanduser(sys.argv[1]))
 print(p)
 PY
-    "$RO_PATH"
 )"
 RW_ABS="$(
-    python3 - <<PY
-import os,sys
-p=os.path.abspath(os.path.expanduser(sys.argv[1]))
+    python3 - "$RW_PATH" <<'PY'
+import os
+import sys
+
+p = os.path.abspath(os.path.expanduser(sys.argv[1]))
 print(p)
 PY
-    "$RW_PATH"
 )"
 
 if [[ ! -d "$RO_ABS" ]]; then
@@ -185,8 +189,8 @@ printf '%s' "$CMD_STR" >"$HOST_RUN_DIR/cmd.txt"
 say "[runner] vm=$VM_NAME"
 say "[runner] bundle=$BUNDLE_PATH"
 say "[runner] snapshot=$SNAPSHOT_NAME"
-say "[runner] ro=$RO_ABS (guest: /Volumes/$RO_NAME)"
-say "[runner] rw=$RW_ABS (guest: /Volumes/$RW_NAME)"
+say "[runner] ro=$RO_ABS (guest leaf: $RO_NAME)"
+say "[runner] rw=$RW_ABS (guest leaf: $RW_NAME)"
 say "[runner] run=$HOST_RUN_DIR"
 say "[runner] timeout=${CMD_TIMEOUT}s"
 
@@ -275,21 +279,77 @@ fi
 # Validate mounts exist.
 REMOTE_EXEC_PY="$(dirname "$0")/ghostvm_remote_exec.py"
 
-if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "[ -d /Volumes/$RO_NAME ] && [ -d /Volumes/$RW_NAME ]" >/dev/null 2>&1; then
+# Discover the AppleVirtIOFS mountpoint that hosts shared folders, and wait for
+# the expected share directories to appear (guest auto-mount can lag /health).
+say "[runner] waiting for shared folders to mount"
+
+MOUNT_LINE=""
+SHARE_ROOT=""
+GUEST_RO=""
+GUEST_RW=""
+
+deadline=$((SECONDS + 120))
+while [[ $SECONDS -lt $deadline ]]; do
+    MOUNT_LINE="$(
+        python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/sbin/mount | /usr/bin/grep -m 1 AppleVirtIOFS" 2>/dev/null || true
+    )"
+    MOUNT_LINE="${MOUNT_LINE%$'\n'}"
+    MOUNT_LINE="${MOUNT_LINE%$'\r'}"
+
+    if [[ -z "$MOUNT_LINE" ]]; then
+        sleep 1
+        continue
+    fi
+
+    SHARE_ROOT="${MOUNT_LINE#* on }"
+    SHARE_ROOT="${SHARE_ROOT%% (*}"
+    if [[ -z "$SHARE_ROOT" || "$SHARE_ROOT" == "$MOUNT_LINE" ]]; then
+        sleep 1
+        continue
+    fi
+
+    GUEST_RO="$SHARE_ROOT/$RO_NAME"
+    GUEST_RW="$SHARE_ROOT/$RW_NAME"
+    if python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "[ -d \"$GUEST_RO\" ] && [ -d \"$GUEST_RW\" ]" >/dev/null 2>&1; then
+        break
+    fi
+
+    sleep 1
+done
+
+if [[ -z "$MOUNT_LINE" ]]; then
+    say "[runner] guest mount output:" >&2
+    python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/sbin/mount" >&2 || true
     say "[runner] /Volumes listing:" >&2
     python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/bin/ls -la /Volumes" || true
-    action_required "Expected shared folders not mounted at /Volumes/$RO_NAME and /Volumes/$RW_NAME.\nFix: ensure --ro/--rw leaf names are unique and the VM is restarted after config changes."
+    action_required "Could not find the shared-folder mountpoint (AppleVirtIOFS) in the guest.\nFix: ensure shared folders are enabled and the guest auto-mounts the VirtioFS share."
+fi
+
+if [[ -z "$SHARE_ROOT" || "$SHARE_ROOT" == "$MOUNT_LINE" ]]; then
+    action_required "Failed to parse AppleVirtIOFS mountpoint from guest mount output:\n$MOUNT_LINE"
+fi
+
+say "[runner] share_root=$SHARE_ROOT"
+say "[runner] guest_ro=$GUEST_RO"
+say "[runner] guest_rw=$GUEST_RW"
+
+if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "[ -d \"$GUEST_RO\" ] && [ -d \"$GUEST_RW\" ]" >/dev/null 2>&1; then
+    say "[runner] share_root listing:" >&2
+    python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/bin/ls -la \"$SHARE_ROOT\"" || true
+    say "[runner] /Volumes listing:" >&2
+    python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/bin/ls -la /Volumes" || true
+    action_required "Expected shared folders not found under:\n  $GUEST_RO\n  $GUEST_RW\nFix: ensure --ro/--rw leaf names are unique and the VM is restarted after config changes."
 fi
 
 # Validate RO is actually read-only.
-if python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "set +e; /usr/bin/touch /Volumes/$RO_NAME/.ghostvm_ro_test 2>/dev/null; test \$? -ne 0" >/dev/null 2>&1; then
+if python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "set +e; /usr/bin/touch \"$GUEST_RO/.ghostvm_ro_test\" 2>/dev/null; test \$? -ne 0" >/dev/null 2>&1; then
     :
 else
     action_required "RO share appears writable from the guest. Refusing to continue.\nFix: ensure sharedFolders entry for --ro has readOnly=true in config.json (scripts configure this automatically)."
 fi
 
 # Validate RW is writable.
-if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/usr/bin/touch /Volumes/$RW_NAME/.ghostvm_rw_test && /bin/rm -f /Volumes/$RW_NAME/.ghostvm_rw_test" >/dev/null 2>&1; then
+if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/usr/bin/touch \"$GUEST_RW/.ghostvm_rw_test\" && /bin/rm -f \"$GUEST_RW/.ghostvm_rw_test\"" >/dev/null 2>&1; then
     action_required "RW share is not writable from the guest. Ensure --rw points to a writable host directory."
 fi
 
@@ -299,13 +359,21 @@ cat >"$GUEST_RUN_SCRIPT_HOST" <<GUESTSH
 #!/bin/zsh
 set -euo pipefail
 
-RUN_DIR="\$(cd -- \"\$(dirname -- \"\$0\")\" && pwd)"
-RO_VOL="/Volumes/$RO_NAME"
-RW_VOL="/Volumes/$RW_NAME"
+RUN_DIR="\$(cd -- "\$(dirname -- "\$0")" && pwd)"
+MOUNT_LINE="\$(/sbin/mount | /usr/bin/grep -m 1 AppleVirtIOFS || true)"
+if [[ -z "\$MOUNT_LINE" ]]; then
+  print "[guest] error: AppleVirtIOFS mount not found" >&2
+  /sbin/mount >&2 || true
+  exit 1
+fi
+SHARE_ROOT="\${MOUNT_LINE#* on }"
+SHARE_ROOT="\${SHARE_ROOT%% \\(*}"
+RO_VOL="\$SHARE_ROOT/$RO_NAME"
+RW_VOL="\$SHARE_ROOT/$RW_NAME"
 WORK_BASE="/Users/Shared/ghostvm-safe-testing/$RUN_ID"
 INPUT_DIR="\$WORK_BASE/input"
 CMD_FILE="\$RUN_DIR/cmd.txt"
-CMD="\$(/bin/cat \"\$CMD_FILE\")"
+CMD="\$(/bin/cat "\$CMD_FILE")"
 
 mkdir -p "\$WORK_BASE"
 mkdir -p "\$RUN_DIR"
@@ -328,8 +396,10 @@ cd "\$INPUT_DIR"
 /usr/bin/sw_vers >"\$RUN_DIR/sw_vers.txt" 2>&1 || true
 
 # Run user command.
+set +e
 /bin/zsh -lc "\$CMD"
 EXIT_CODE=\$?
+set -e
 print "\$EXIT_CODE" >"\$RUN_DIR/exit_code"
 
 # If git repo, export patch.
@@ -344,14 +414,16 @@ GUESTSH
 chmod +x "$GUEST_RUN_SCRIPT_HOST"
 
 say "[runner] running guest script"
-GUEST_RUN_SCRIPT_GUEST="/Volumes/$RW_NAME/ghostvm-runs/$VM_NAME/$RUN_ID/guest_run.sh"
+GUEST_RUN_SCRIPT_GUEST="$GUEST_RW/ghostvm-runs/$VM_NAME/$RUN_ID/guest_run.sh"
 
 # Ensure it is executable in the guest even if host-side permissions didn't propagate.
 python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/chmod +x "$GUEST_RUN_SCRIPT_GUEST" >/dev/null 2>&1 || true
 
 # Run the long guest step via Host API exec so we can set a timeout.
 EXEC_SH="$(dirname "$0")/ghostvm_exec.sh"
-if ! "$EXEC_SH" --socket "$sock_path" --timeout "$CMD_TIMEOUT" -- "$GUEST_RUN_SCRIPT_GUEST"; then
+if "$EXEC_SH" --socket "$sock_path" --timeout "$CMD_TIMEOUT" --argv "$GUEST_RUN_SCRIPT_GUEST"; then
+    :
+else
     rc=$?
     say "[runner] guest command failed (exit=$rc; see logs in $HOST_RUN_DIR)"
     exit "$rc"

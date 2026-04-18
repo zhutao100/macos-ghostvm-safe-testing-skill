@@ -6,12 +6,17 @@ usage() {
 Usage:
   ghostvm_exec.sh --vm <Name> [--timeout <seconds>] -- <shell-command>
   ghostvm_exec.sh --socket <path> [--timeout <seconds>] -- <shell-command>
+  ghostvm_exec.sh --vm <Name> [--timeout <seconds>] --argv <command> [args...]
+  ghostvm_exec.sh --socket <path> [--timeout <seconds>] --argv <command> [args...]
 
 Executes a command inside the guest via the GhostVM Host API socket.
 
 Implementation detail:
 - Uses /bin/bash -lc "<shell-command>" inside the guest.
 - Sends POST /api/v1/exec with a configurable timeout.
+-
+- For --argv mode: runs `/bin/bash -lc 'exec "$@"' _ <command> [args...]` in the guest,
+  which preserves spaces in paths without needing shell-escaping.
 
 Return:
 - prints guest stdout to stdout
@@ -23,6 +28,7 @@ USAGE
 VM_NAME=""
 SOCKET_PATH=""
 TIMEOUT=30
+MODE="shell"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -38,7 +44,13 @@ while [[ $# -gt 0 ]]; do
             TIMEOUT="$2"
             shift 2
             ;;
+        --argv)
+            MODE="argv"
+            shift
+            break
+            ;;
         --)
+            MODE="shell"
             shift
             break
             ;;
@@ -79,21 +91,48 @@ if ! command -v curl >/dev/null 2>&1; then
     exit 1
 fi
 
-CMD="$*"
+if [[ "$MODE" == "shell" ]]; then
+    PAYLOAD_ARGS=("$*")
+elif [[ "$MODE" == "argv" ]]; then
+    PAYLOAD_ARGS=("$@")
+else
+    echo "ERROR: invalid mode: $MODE" >&2
+    exit 2
+fi
 
 JSON_BODY="$(
-    python3 - <<PY
+    python3 - "$MODE" "$TIMEOUT" "${PAYLOAD_ARGS[@]}" <<'PY'
 import json
 import sys
-cmd = sys.argv[1]
-body = {
-  "command": "/bin/bash",
-  "args": ["-lc", cmd],
-  "timeout": int(sys.argv[2]),
-}
+
+mode = sys.argv[1]
+timeout = int(sys.argv[2])
+args = sys.argv[3:]
+
+def die(msg: str) -> None:
+    sys.stderr.write(f"error: {msg}\n")
+    raise SystemExit(2)
+
+if not args:
+    die("missing command")
+
+if mode == "shell":
+    cmd = args[0]
+    body = {
+      "command": "/bin/bash",
+      "args": ["-lc", cmd],
+      "timeout": timeout,
+    }
+elif mode == "argv":
+    body = {
+      "command": "/bin/bash",
+      "args": ["-lc", 'exec "$@"', "_", *args],
+      "timeout": timeout,
+    }
+else:
+    die(f"invalid mode: {mode}")
 print(json.dumps(body))
 PY
-    "$CMD" "$TIMEOUT"
 )"
 
 BODY_FILE="$(mktemp -t ghostvm-exec.body.XXXXXX)"

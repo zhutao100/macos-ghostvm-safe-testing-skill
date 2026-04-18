@@ -76,12 +76,13 @@ fi
 
 # Expand ~ and normalize.
 DEST_DIR="$(
-    python3 - <<PY
-import os, sys
+    python3 - "$DEST_DIR" <<'PY'
+import os
+import sys
+
 p = os.path.expanduser(sys.argv[1])
 print(os.path.abspath(p))
 PY
-    "$DEST_DIR"
 )"
 
 mkdir -p "$DEST_DIR" 2>/dev/null || {
