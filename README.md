@@ -1,6 +1,6 @@
-# GhostVM Safe Testing Skill
+# macOS GhostVM Safe Testing Skill
 
-This repository packages a single **agent skill** for running deterministic, low-risk development tests inside a **macOS VM** managed by **GhostVM**, while keeping selected host data **read-only**.
+This repository packages a single **agent skill** for running deterministic, low-risk development tests inside a **macOS VM** managed by **[GhostVM](https://github.com/groundwater/GhostVM)**, while keeping selected host data **read-only**.
 
 It is designed for **LLM agent tools** (Codex CLI, Claude Code, etc.) that need a verifiable loop:
 
