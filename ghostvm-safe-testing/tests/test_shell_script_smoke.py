@@ -119,6 +119,115 @@ class TestShellScriptSmoke(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
+    def test_doctor_retries_exec_on_transient_connection_reset(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+
+            # Minimal fake VM bundle with config + snapshot dir.
+            bundle = root / "Dev.GhostVM"
+            bundle.mkdir()
+            (bundle / "config.json").write_text("{}\n", encoding="utf-8")
+            (bundle / "Snapshots" / "clean-state").mkdir(parents=True)
+
+            state_dir = root / "state"
+            state_dir.mkdir()
+
+            # Provide a fake non-symlink `vmctl` on PATH that:
+            # - starts a long-lived process (so doctor can `kill -0` it)
+            # - returns a socket path once "running"
+            # - fails the first exec attempt with connection reset, then succeeds
+            bin_dir = root / "fake-bin"
+            bin_dir.mkdir()
+            vmctl = bin_dir / "vmctl"
+            vmctl.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "STATE_DIR=${GHOSTVM_TEST_STATE_DIR:?}\n"
+                'RUN_FLAG="$STATE_DIR/running"\n'
+                'EXEC_ATTEMPTS="$STATE_DIR/exec_attempts"\n'
+                "\n"
+                'case "${1:-}" in\n'
+                "  --help)\n"
+                "    exit 0\n"
+                "    ;;\n"
+                "  start)\n"
+                "    # Mark running, then block until stop clears it.\n"
+                "    printf '1' >\"$RUN_FLAG\"\n"
+                '    while [[ -f "$RUN_FLAG" ]]; do\n'
+                "      sleep 0.05\n"
+                "    done\n"
+                "    exit 0\n"
+                "    ;;\n"
+                "  stop)\n"
+                '    rm -f "$RUN_FLAG" >/dev/null 2>&1 || true\n'
+                "    exit 0\n"
+                "    ;;\n"
+                "  socket)\n"
+                '    if [[ -f "$RUN_FLAG" ]]; then\n'
+                "      printf '%s\\n' '/tmp/dev.sock'\n"
+                "      exit 0\n"
+                "    fi\n"
+                "    exit 1\n"
+                "    ;;\n"
+                "  remote)\n"
+                "    shift\n"
+                "    if [[ ${1:-} == --socket ]]; then\n"
+                "      shift 2\n"
+                "    fi\n"
+                "    sub=${1:-}\n"
+                "    shift || true\n"
+                '    case "$sub" in\n'
+                "      health)\n"
+                "        printf '%s\\n' '{\"status\":\"ok\"}'\n"
+                "        exit 0\n"
+                "        ;;\n"
+                "      exec)\n"
+                "        n=0\n"
+                '        if [[ -f "$EXEC_ATTEMPTS" ]]; then\n'
+                "          n=$(cat \"$EXEC_ATTEMPTS\" 2>/dev/null || printf '0')\n"
+                "        fi\n"
+                "        n=$((n+1))\n"
+                '        printf \'%s\' "$n" >"$EXEC_ATTEMPTS"\n'
+                "        if [[ $n -lt 2 ]]; then\n"
+                "          printf '%s\\n' 'Error: Error Domain=NSPOSIXErrorDomain Code=54 \"Connection reset by peer\"' >&2\n"
+                "          exit 1\n"
+                "        fi\n"
+                '        printf \'%s\\n\' \'{"status":"ok","exitCode":0,"stdout":"","stderr":""}\'\n'
+                "        exit 0\n"
+                "        ;;\n"
+                "      *)\n"
+                "        exit 0\n"
+                "        ;;\n"
+                "    esac\n"
+                "    ;;\n"
+                "  *)\n"
+                "    exit 0\n"
+                "    ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            vmctl.chmod(0o755)
+
+            env = dict(os.environ)
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+            env["GHOSTVM_TEST_STATE_DIR"] = str(state_dir)
+
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(DOCTOR_SH),
+                    "--bundle",
+                    str(bundle),
+                    "--snapshot",
+                    "clean-state",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+
     def test_exec_builds_json_shell_mode(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

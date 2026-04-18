@@ -34,7 +34,7 @@ Notes:
 USAGE
 }
 
-say() { echo "$*" >&2; }
+say() { printf '%b\n' "$*" >&2; }
 
 action_required() {
     say ""
@@ -276,8 +276,19 @@ if ! vmctl remote --socket "$sock_path" health >/dev/null 2>&1; then
     action_required "GhostTools /health failed. Ensure GhostTools is installed + running in the guest. See references/troubleshooting.md"
 fi
 
-# Validate mounts exist.
+# Validate remote exec is ready (can transiently fail right after /health).
 REMOTE_EXEC_PY="$(dirname "$0")/ghostvm_remote_exec.py"
+say "[runner] waiting for guest exec to be ready"
+deadline=$((SECONDS + 30))
+while [[ $SECONDS -lt $deadline ]]; do
+    if python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/echo ok >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/echo ok >/dev/null 2>&1; then
+    action_required "Guest exec is not responding yet (even though /health is OK).\nFix: wait for the user session to finish logging in and for GhostTools to fully initialize, then retry.\nSee: references/remote-exec.md"
+fi
 
 # Discover the AppleVirtIOFS mountpoint that hosts shared folders, and wait for
 # the expected share directories to appear (guest auto-mount can lag /health).

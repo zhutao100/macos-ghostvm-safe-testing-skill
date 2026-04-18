@@ -19,7 +19,7 @@ Exit codes:
 USAGE
 }
 
-say() { echo "$*" >&2; }
+say() { printf '%b\n' "$*" >&2; }
 
 action_required() {
     say ""
@@ -195,8 +195,24 @@ if ! vmctl remote --socket "$sock_path" health >/dev/null 2>&1; then
 fi
 
 # exec sanity: use absolute path
-if ! vmctl remote --socket "$sock_path" exec /usr/bin/uname -a >/dev/null 2>&1; then
-    action_required "GhostTools /health works, but remote exec failed even with an absolute executable path.\nSee: ghostvm-safe-testing/references/remote-exec.md"
+say "[doctor] checking remote exec (may take a few seconds after /health)"
+deadline=$((SECONDS + 30))
+last_exec_err=""
+while [[ $SECONDS -lt $deadline ]]; do
+    set +e
+    exec_out="$(vmctl remote --socket "$sock_path" exec /usr/bin/uname -a 2>&1)"
+    rc=$?
+    set -e
+    if [[ $rc -eq 0 ]]; then
+        last_exec_err=""
+        break
+    fi
+    last_exec_err="$exec_out"
+    sleep 1
+done
+
+if [[ -n "$last_exec_err" ]]; then
+    action_required "GhostTools /health works, but remote exec failed even with an absolute executable path.\nLast error:\n$last_exec_err\nSee: ghostvm-safe-testing/references/remote-exec.md"
 fi
 
 say "[doctor] ok: remote health + exec"

@@ -63,6 +63,16 @@ This is the most flexible option and is what the safe runner uses.
 
 At that point the failure is not the PATH issue. Common next steps:
 
+### 0) Right after boot: transient `Connection reset by peer`
+
+Immediately after the VM boots (even if `/health` is already OK), `exec` can transiently fail with:
+
+```text
+Error: Error Domain=NSPOSIXErrorDomain Code=54 "Connection reset by peer"
+```
+
+Wait a few seconds and retry. The doctor and safe runner include a short retry loop for this.
+
 1. Confirm GhostTools is running as the logged-in user.
    - If auto-login is disabled and no user session is active, GhostTools won’t launch.
 2. In the guest, open **Console** and filter for `GhostTools`.

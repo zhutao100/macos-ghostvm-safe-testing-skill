@@ -21,7 +21,7 @@ Notes:
 USAGE
 }
 
-say() { echo "$*" >&2; }
+say() { printf '%b\n' "$*" >&2; }
 
 action_required() {
     say ""
