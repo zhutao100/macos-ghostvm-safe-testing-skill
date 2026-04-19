@@ -35,6 +35,7 @@ Recommended workflow:
   2) apply offline seed while the VM is stopped
   3) optionally prime any extra app-specific prompts in the guest UI
   4) create a new snapshot (for example, automation-ready)
+     - if the snapshot already exists, this script replaces it (delete + recreate)
 
 Examples:
   # Pure offline preparation from a clean base snapshot.
@@ -242,6 +243,81 @@ wait_for_vm_stop() {
     return 1
 }
 
+disk_image_root_device() {
+    python3 - "$BUNDLE_PATH/disk.img" <<'PY'
+import os
+import plistlib
+import subprocess
+import sys
+from pathlib import Path
+
+disk = Path(sys.argv[1]).expanduser().resolve()
+try:
+    payload = plistlib.loads(subprocess.check_output(["hdiutil", "info", "-plist"]))
+except Exception:
+    raise SystemExit(1)
+
+for image in payload.get("images", []):
+    img_path = image.get("image-path")
+    if not img_path:
+        continue
+    try:
+        if Path(str(img_path)).expanduser().resolve() != disk:
+            continue
+    except OSError:
+        continue
+    devs = [str(e.get("dev-entry")) for e in image.get("system-entities", []) if e.get("dev-entry")]
+    if devs:
+        print(sorted(devs, key=lambda s: (len(s), s))[0])
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+detach_disk_image_if_attached() {
+    [[ -f "$BUNDLE_PATH/disk.img" ]] || return 0
+    local root_device
+    root_device="$(disk_image_root_device 2>/dev/null || true)"
+    [[ -n "$root_device" ]] || return 0
+    say "[prep] detaching existing disk image mount: $root_device"
+    hdiutil detach "$root_device" >/dev/null 2>&1 || hdiutil detach -force "$root_device" >/dev/null 2>&1 ||
+        action_required "Failed to detach already-mounted disk image ($root_device). Close any Finder windows or processes using it, then retry."
+}
+
+snapshot_exists() {
+    local name="$1"
+    local listing
+    if ! listing="$(vmctl snapshot "$BUNDLE_PATH" list 2>/dev/null)"; then
+        return 2
+    fi
+    local line
+    while IFS= read -r line; do
+        [[ "$line" == "$name" ]] && return 0
+    done <<<"$listing"
+    return 1
+}
+
+create_snapshot() {
+    local name="$1"
+    if snapshot_exists "$name"; then
+        say "[prep] deleting existing snapshot: $name"
+        if ! vmctl snapshot "$BUNDLE_PATH" delete "$name" >/dev/null 2>&1; then
+            action_required "Failed to delete existing snapshot '$name'. Ensure the VM is stopped and the snapshot name is valid."
+        fi
+    else
+        local rc=$?
+        if [[ $rc -eq 2 ]]; then
+            action_required "Failed to list snapshots. Ensure the VM bundle exists and vmctl can access it."
+        fi
+    fi
+
+    say "[prep] creating snapshot: $name"
+    if ! vmctl snapshot "$BUNDLE_PATH" create "$name" >/dev/null 2>&1; then
+        action_required "Failed to create snapshot '$name'. Ensure the VM is stopped and the snapshot name is valid."
+    fi
+    say "[prep] snapshot created: $name"
+}
+
 stop_vm_if_running() {
     if vmctl socket "$BUNDLE_PATH" >/dev/null 2>&1 || vm_pid_alive; then
         say "[prep] stopping running VM"
@@ -253,6 +329,8 @@ stop_vm_if_running() {
 if vmctl socket "$BUNDLE_PATH" >/dev/null 2>&1 || vm_pid_alive; then
     stop_vm_if_running
 fi
+
+detach_disk_image_if_attached
 
 if [[ -n "$BASE_SNAPSHOT" ]]; then
     say "[prep] reverting base snapshot"
@@ -293,11 +371,7 @@ if [[ $PRIME_AUTOMATION -eq 0 && $PRIME_LOCAL_NETWORK -eq 0 ]]; then
         exit 0
     fi
 
-    say "[prep] creating snapshot: $SNAPSHOT_NAME"
-    if ! vmctl snapshot "$BUNDLE_PATH" create "$SNAPSHOT_NAME" >/dev/null 2>&1; then
-        action_required "Failed to create snapshot '$SNAPSHOT_NAME'. Ensure the VM is stopped and the snapshot name is valid."
-    fi
-    say "[prep] snapshot created: $SNAPSHOT_NAME"
+    create_snapshot "$SNAPSHOT_NAME"
     exit 0
 fi
 
@@ -393,12 +467,8 @@ say "[prep] stopping VM (snapshot requires stopped VM)"
 vmctl stop "$BUNDLE_PATH" >/dev/null 2>&1 || true
 wait_for_vm_stop || action_required "Timed out waiting for VM to stop. Stop it in GhostVM GUI and retry snapshot creation."
 
-say "[prep] creating snapshot: $SNAPSHOT_NAME"
-if ! vmctl snapshot "$BUNDLE_PATH" create "$SNAPSHOT_NAME" >/dev/null 2>&1; then
-    action_required "Failed to create snapshot '$SNAPSHOT_NAME'. Ensure the VM is stopped and the snapshot name is valid."
-fi
+create_snapshot "$SNAPSHOT_NAME"
 
 STARTED_BY_SCRIPT=0
 trap - EXIT
 cleanup
-say "[prep] snapshot created: $SNAPSHOT_NAME"

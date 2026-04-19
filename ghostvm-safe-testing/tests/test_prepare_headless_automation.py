@@ -16,6 +16,7 @@ class TestPrepareHeadlessAutomationScript(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn("offline guest-disk seeding", proc.stdout)
+        self.assertIn("replaces it", proc.stdout)
         self.assertIn("--appleevent-target", proc.stdout)
         self.assertIn("--tcc-client", proc.stdout)
         self.assertIn("--prime-local-network", proc.stdout)
@@ -27,6 +28,14 @@ class TestPrepareHeadlessAutomationScript(unittest.TestCase):
         self.assertNotEqual(i_seed, -1, "expected offline seed marker")
         self.assertNotEqual(i_start, -1, "expected VM start marker")
         self.assertLess(i_seed, i_start)
+
+    def test_snapshot_replacement_deletes_before_create(self) -> None:
+        text = SCRIPT.read_text(encoding="utf-8")
+        i_delete = text.find("[prep] deleting existing snapshot:")
+        i_create = text.find("[prep] creating snapshot:")
+        self.assertNotEqual(i_delete, -1, "expected snapshot delete marker")
+        self.assertNotEqual(i_create, -1, "expected snapshot create marker")
+        self.assertLess(i_delete, i_create)
 
 
 if __name__ == "__main__":

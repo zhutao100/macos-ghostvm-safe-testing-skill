@@ -81,6 +81,8 @@ scripts/ghostvm_prepare_headless_automation.sh \
   --snapshot automation-ready
 ```
 
+If the snapshot already exists, the helper replaces it (delete + recreate) so re-running the command is safe.
+
 Use priming only when you need extra app-specific approvals beyond the seeded baseline:
 
 ```bash

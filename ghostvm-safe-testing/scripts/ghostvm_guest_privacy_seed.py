@@ -152,14 +152,18 @@ def choose_data_mountpoint(candidates: list[Path]) -> Path | None:
     scored: list[tuple[int, Path]] = []
     for path in candidates:
         score = 0
+        if path.name == "Data":
+            score += 30
         if path.name.endswith(" - Data"):
-            score += 20
+            score += 25
         if (path / "Users").is_dir():
             score += 15
         if (path / "private").is_dir():
             score += 15
         if (path / "Library").is_dir():
             score += 10
+        if (path / "Library" / "Application Support" / "com.apple.TCC" / "TCC.db").is_file():
+            score += 40
         if (path / "System").is_dir() and not (path / "Users").is_dir():
             score -= 10
         scored.append((score, path))
@@ -181,12 +185,39 @@ def mounted_data_root(bundle: Path) -> Iterator[Path]:
     if not disk_image.exists():
         raise SeedError(f"disk.img not found in bundle: {disk_image}")
 
-    attach = run(
-        ["hdiutil", "attach", "-plist", "-nobrowse", "-owners", "off", str(disk_image)],
-        binary=True,
-    )
-    payload = plistlib.loads(attach.stdout)
-    entities = payload.get("system-entities", [])
+    attached_here = False
+    entities: list[dict[str, object]] | None = None
+    try:
+        attach = run(
+            ["hdiutil", "attach", "-plist", "-nobrowse", "-owners", "off", str(disk_image)],
+            binary=True,
+        )
+        attached_here = True
+        payload = plistlib.loads(attach.stdout)
+        entities = payload.get("system-entities", [])
+    except SeedError:
+        try:
+            info = plistlib.loads(run(["hdiutil", "info", "-plist"], binary=True).stdout)
+        except SeedError as exc:
+            raise SeedError(
+                "hdiutil attach failed, and querying existing attachments also failed"
+            ) from exc
+
+        disk_resolved = disk_image.resolve()
+        for image in info.get("images", []):
+            img_path = image.get("image-path")
+            if not img_path:
+                continue
+            try:
+                if Path(str(img_path)).resolve() != disk_resolved:
+                    continue
+            except OSError:
+                continue
+            entities = image.get("system-entities", [])
+            break
+
+        if entities is None:
+            raise
     dev_entries = [
         str(entity.get("dev-entry", "")) for entity in entities if entity.get("dev-entry")
     ]
@@ -230,7 +261,11 @@ def mounted_data_root(bundle: Path) -> Iterator[Path]:
             proc = subprocess.run([*detach_cmd, "-force"], capture_output=True, text=True)
             if proc.returncode != 0:
                 detail = proc.stderr.strip() or proc.stdout.strip() or f"exit {proc.returncode}"
-                raise SeedError(f"Failed to detach mounted disk image {root_device}: {detail}")
+                if attached_here:
+                    raise SeedError(f"Failed to detach mounted disk image {root_device}: {detail}")
+                say(
+                    f"[seed] warning: unable to detach pre-attached disk image {root_device}: {detail}"
+                )
 
 
 def ensure_absolute_exec_paths(paths: list[str]) -> list[str]:

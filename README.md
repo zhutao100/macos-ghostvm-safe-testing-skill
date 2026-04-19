@@ -153,6 +153,8 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
   --snapshot automation-ready
 ```
 
+If the snapshot already exists, the helper replaces it (delete + recreate) so re-running the command is safe.
+
 Useful extensions:
 
 ```bash
