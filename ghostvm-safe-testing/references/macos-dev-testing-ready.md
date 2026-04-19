@@ -94,3 +94,11 @@ These are the high-friction parts that are usually not fully automatable:
 Once the guest is stable:
 
 - Create a snapshot (e.g. `clean-state`) and treat it as the golden baseline.
+
+---
+
+## 6) Headless automation gating (TCC + Local Network)
+
+If you intend to run unattended automation inside the guest (AppleScript/UI automation, local device discovery, etc.), bake the required consent state into a snapshot.
+
+See: `references/headless-automation-gating.md`

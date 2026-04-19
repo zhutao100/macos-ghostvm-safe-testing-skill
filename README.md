@@ -11,6 +11,8 @@ It is designed for **LLM agent tools** (Codex CLI, Claude Code, etc.) that need 
 5. Export artifacts (logs, patches) to a dedicated host output directory.
 6. Stop the VM (optional) and revert to a clean snapshot for the next run.
 
+It also includes a **disposable-VM preparation path** for guest automation that would otherwise block on **TCC** or **Local Network** first-use prompts.
+
 ## Repo contents
 
 - `ghostvm-safe-testing/` — the skill folder
@@ -19,6 +21,8 @@ It is designed for **LLM agent tools** (Codex CLI, Claude Code, etc.) that need 
     - `install_vmctl_wrapper.sh` — put a `vmctl` wrapper on your `PATH` (recommended)
     - `ghostvm_doctor.sh` — sanity checks + actionable diagnostics
     - `ghostvm_configure_shares.py` — configure RO/RW shared folders by editing `config.json`
+    - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network + baseline TCC
+    - `ghostvm_prepare_headless_automation.sh` — build an `automation-ready` snapshot from a stopped guest image
     - `ghostvm_safe_test.sh` — the safe “revert → copy → run → export” loop
   - `references/` — deeper troubleshooting notes
 
@@ -131,6 +135,52 @@ ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name>
 
 See: `ghostvm-safe-testing/references/macos-dev-testing-ready.md`
 
+## Optional: prepare a disposable automation snapshot (recommended for AppleScript/UI automation or local-network workflows)
+
+The pragmatic path for disposable VMs is:
+
+1. Revert to a known-good base snapshot.
+2. Keep the VM stopped.
+3. Offline-seed the guest `disk.img` from the host:
+   - Local Network CIDR exemptions
+   - baseline TCC rows for `/usr/bin/osascript` and `/usr/libexec/sshd-keygen-wrapper`
+4. Create a new snapshot, for example `automation-ready`.
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --snapshot automation-ready
+```
+
+Useful extensions:
+
+```bash
+# extra AppleEvents receiver
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --appleevent-target com.apple.TextEdit
+
+# extra sender binary that should receive the same baseline grants
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --tcc-client /usr/local/bin/cliclick
+```
+
+Use interactive priming only for approvals that are intentionally outside the seeded baseline:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --prime-automation \
+  --prime-local-network
+```
+
+See: `ghostvm-safe-testing/references/headless-automation-gating.md`
+
 ## First agent-driven run
 
 From the repo root:
@@ -140,7 +190,7 @@ ghostvm-safe-testing/scripts/ghostvm_doctor.sh --vm <Name>
 
 ghostvm-safe-testing/scripts/ghostvm_safe_test.sh \
   --vm <Name> \
-  --snapshot clean-state \
+  --snapshot automation-ready \
   --ro /Users/me/src/my-repo \
   --rw /Users/me/.ghostvm-artifacts \
   --timeout 3600 \

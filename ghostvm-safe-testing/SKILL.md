@@ -5,7 +5,7 @@ license: MIT
 compatibility: macOS 15+ on Apple Silicon with GhostVM installed, a prepared .GhostVM bundle, GhostTools running in the guest, and a clean snapshot.
 metadata:
   author: ghostvm-safe-testing-skill
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # GhostVM safe testing workflow (agent-facing)
@@ -17,17 +17,19 @@ This skill provides a **repeatable**, **low-risk** workflow to run commands/test
 - **Snapshot revert** to reset VM disk state.
 - **Read-only host shared folder** for inputs (repo/data).
 - **Writable host shared folder** for outputs (artifacts only).
+- **Offline guest-disk seeding** to pre-bake Local Network and baseline TCC state into disposable VM snapshots.
 
 ### Use this skill when
 
 - You need to run tests against host data, but must prevent host mutation.
 - You want a deterministic “revert → run → export artifacts” loop.
+- You need guest automation that should not stop on first-use TCC / Local Network dialogs.
 - You are on macOS 15+ (Apple Silicon) and GhostVM is installed.
 
 ### Do not use this skill when
 
 - GhostVM is not installed or you are not on Apple Silicon.
-- You need fully headless automation with no GUI processes.
+- You need fully headless host-side operation with no GUI helper processes.
   - GhostVM’s Host API socket is served by **GhostVMHelper.app** (GUI helper), so `--headless` mode does not provide the Host API.
 
 ## Assumptions (prereqs completed by a human)
@@ -60,6 +62,60 @@ scripts/ghostvm_guest_ready.sh --vm <Name>
 ```
 
 See: `references/macos-dev-testing-ready.md`
+
+### 1c) Prepare an unattended automation snapshot (recommended when guest commands use AppleScript/UI automation or local-network discovery)
+
+The recommended path for **disposable VMs** is:
+
+1. Start from a known-good base snapshot.
+2. Keep the VM **stopped**.
+3. Offline-seed the guest `disk.img` from the host:
+   - Local Network CIDR exemptions
+   - baseline TCC rows for `/usr/bin/osascript` and `/usr/libexec/sshd-keygen-wrapper`
+4. Create a new snapshot (for example, `automation-ready`).
+
+```bash
+scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --snapshot automation-ready
+```
+
+Use priming only when you need extra app-specific approvals beyond the seeded baseline:
+
+```bash
+scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --prime-automation \
+  --prime-local-network
+```
+
+Useful extensions:
+
+```bash
+# extra AppleEvents receiver
+--appleevent-target com.apple.TextEdit
+
+# extra sender binary whose path should get the same baseline grants
+--tcc-client /usr/local/bin/cliclick
+
+# patch only the intended guest user(s)
+--user agent
+```
+
+Then run the safe loop using the prepared snapshot:
+
+```bash
+scripts/ghostvm_safe_test.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --ro /absolute/path/to/host-input \
+  --rw /absolute/path/to/host-output \
+  --cmd 'swift test'
+```
+
+See: `references/headless-automation-gating.md`
 
 ### 2) Run a safe test loop
 
@@ -109,8 +165,20 @@ Keep these true unless the user explicitly opts out:
 2. **Work happens on guest-local copies.**
 3. **Only a dedicated host output directory is writable.**
 4. **VM state is reset via snapshot revert before each run.**
+5. **Automation/TCC and Local Network state is baked into disposable snapshots, not granted ad hoc during agent runs.**
 
 ## Important behavior notes
+
+### Offline guest-disk seeding is the default prep path for disposable VMs
+
+`ghostvm_prepare_headless_automation.sh` now edits the stopped guest’s `disk.img` from the host. That avoids guest-side SIP/TCC friction for baseline setup and makes the resulting snapshot reproducible.
+
+The helper seeds:
+
+- root-domain Local Network preferences (`com.apple.network.local-network`)
+- system and detected per-user `TCC.db` files
+
+If your workflow still prompts after that, the usual cause is that the actual requester binary or AppleEvents receiver differs from the seeded baseline. Add `--tcc-client` / `--appleevent-target`, or use priming for that extra case.
 
 ### Snapshots include `config.json`
 
@@ -154,5 +222,6 @@ The safe runner uses `scripts/ghostvm_exec.sh` (Host API + timeout) for the long
 ## Troubleshooting
 
 - If `vmctl` is missing, or `vmctl start` fails with `GhostVMHelper.app not found`: see `references/troubleshooting.md`.
+- If the offline prep helper cannot identify the guest data volume: mount the image manually and use `scripts/ghostvm_guest_privacy_seed.py --mounted-root ...`.
 - If the Host API socket exists but `/health` fails: ensure GhostTools is installed + running in the guest.
 - If `/health` succeeds but `exec` fails: see `references/remote-exec.md`.

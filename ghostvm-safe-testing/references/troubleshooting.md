@@ -59,6 +59,73 @@ Create it while the VM is stopped:
 vmctl snapshot ~/VMs/<Name>.GhostVM create clean-state
 ```
 
+## Offline privacy seeding issues
+
+### The prep helper cannot identify the guest data volume
+
+Typical symptom:
+
+```text
+ERROR: Could not identify the guest data volume after mounting disk.img.
+```
+
+**Fix path:** mount `disk.img` manually, identify the mounted APFS Data volume, then rerun the seeder directly.
+
+```bash
+hdiutil attach -nobrowse ~/VMs/<Name>.GhostVM/disk.img
+
+# inspect volumes / mount points
+diskutil list
+
+ghostvm-safe-testing/scripts/ghostvm_guest_privacy_seed.py \
+  --mounted-root /Volumes/<Mounted Data Volume>
+```
+
+The mounted root you pass should contain paths like:
+
+```text
+/Volumes/<Mounted Data Volume>/Library
+/Volumes/<Mounted Data Volume>/Users
+/Volumes/<Mounted Data Volume>/private
+```
+
+### The helper says the system `TCC.db` is missing
+
+Typical symptom:
+
+```text
+ERROR: System TCC.db not found at .../Library/Application Support/com.apple.TCC/TCC.db
+```
+
+That usually means the path passed to `--mounted-root` is not the guest data-volume root.
+
+Re-check the mount point and rerun with the correct root.
+
+### You need to seed a different sender binary or AppleEvents receiver
+
+If automation still prompts after snapshot preparation, the most common cause is an identity mismatch between the seeded baseline and the real requester.
+
+Extend the prep command instead of patching the guest manually each time:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --tcc-client /absolute/path/to/requester \
+  --appleevent-target com.apple.TargetApp
+```
+
+### You only want to patch specific guest users
+
+Use repeatable `--user` flags:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --user agent   --user root
+```
+
 ## Host API / GhostTools issues
 
 ### Host API socket not found
@@ -99,3 +166,40 @@ Fix checklist:
 ## `exec` fails (but `health` / `apps` / clipboard work)
 
 See `references/remote-exec.md`.
+
+## Local Network still blocks traffic
+
+### The traffic is outside your seeded CIDRs
+
+The offline helper only exempts the CIDRs you seed. If your workflow talks to other ranges, either:
+
+- add those ranges with repeatable `--cidr`
+- run the traffic from an auto-allowed context inside the guest (root daemon / Terminal / SSH)
+- or prime the Local Network prompt once and snapshot the result
+
+Example:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --cidr 100.64.0.0/10 \
+  --cidr fd00:1234::/64
+```
+
+### You need to verify what was seeded
+
+Mount the guest image and inspect the Local Network preferences file:
+
+```bash
+plutil -p /Volumes/<Mounted Data Volume>/private/var/root/Library/Preferences/com.apple.network.local-network.plist
+```
+
+Check for:
+
+- `AllowedEthernetLocalNetworkAddresses`
+- `AllowedWiFiLocalNetworkAddresses`
+
+### You need a clean first-run retry
+
+Do not try to “reset” Local Network state in place. Revert to a clean snapshot instead.

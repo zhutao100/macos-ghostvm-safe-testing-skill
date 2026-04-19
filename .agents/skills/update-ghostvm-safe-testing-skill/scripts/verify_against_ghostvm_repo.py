@@ -100,7 +100,7 @@ def _run_checks(*, ghostvm_repo: Path, skill_repo_root: Path) -> list[CheckResul
         )
 
     if remote_swift.is_file():
-        ok = _check_file_contains(remote_swift, r"GhostVM/api/\(.*\)\.GhostVM\.sock")
+        ok = _check_file_contains(remote_swift, r"GhostVM/api/\\\([^)]*\)\.GhostVM\.sock")
         add(
             id="ghostvm.socket_path",
             ok=ok,
