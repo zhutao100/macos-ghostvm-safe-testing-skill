@@ -24,10 +24,14 @@ DEFAULT_APPLEEVENT_TARGETS = [
     "com.apple.systemevents",
     "com.apple.finder",
     "com.apple.Safari",
+    "com.apple.mail",
 ]
 DEFAULT_TCC_CLIENTS = [
     "/usr/bin/osascript",
     "/usr/libexec/sshd-keygen-wrapper",
+]
+DEFAULT_TCC_BUNDLE_IDS = [
+    "org.ghostvm.com.ghostvm.guest-tools",
 ]
 DEFAULT_TCC_SERVICES = [
     "kTCCServiceAccessibility",
@@ -46,6 +50,7 @@ class AttachedDisk:
 class TCCGrant:
     service: str
     client: str
+    client_type: int = 1
     receiver: str | None = None
 
 
@@ -87,7 +92,10 @@ def parse_args() -> argparse.Namespace:
         "--cidr",
         action="append",
         dest="cidrs",
-        help="CIDR to exempt from Local Network checks. Repeatable.",
+        help=(
+            "CIDR to exempt from Local Network checks. Repeatable. "
+            "Values are added to the default CIDR set."
+        ),
     )
     ap.add_argument(
         "--user",
@@ -104,7 +112,7 @@ def parse_args() -> argparse.Namespace:
         dest="appleevent_targets",
         help=(
             "Bundle identifier to allow for AppleEvents grants. Repeatable. "
-            "Defaults to System Events, Finder, and Safari."
+            "Values are added to the default set (System Events, Finder, Safari, Mail)."
         ),
     )
     ap.add_argument(
@@ -113,7 +121,16 @@ def parse_args() -> argparse.Namespace:
         dest="tcc_clients",
         help=(
             "Absolute executable path to grant in TCC.db. Repeatable. "
-            "Defaults to /usr/bin/osascript and /usr/libexec/sshd-keygen-wrapper."
+            "Values are added to the defaults (/usr/bin/osascript and /usr/libexec/sshd-keygen-wrapper)."
+        ),
+    )
+    ap.add_argument(
+        "--tcc-bundle-id",
+        action="append",
+        dest="tcc_bundle_ids",
+        help=(
+            "Bundle identifier to grant in TCC.db. Repeatable. "
+            "Values are added to the defaults (org.ghostvm.com.ghostvm.guest-tools / GhostTools)."
         ),
     )
     return ap.parse_args()
@@ -270,7 +287,7 @@ def mounted_data_root(bundle: Path) -> Iterator[Path]:
 
 def ensure_absolute_exec_paths(paths: list[str]) -> list[str]:
     if not paths:
-        return DEFAULT_TCC_CLIENTS.copy()
+        return []
     invalid = [path for path in paths if not path.startswith("/")]
     if invalid:
         raise SeedError(f"--tcc-client values must be absolute paths: {', '.join(invalid)}")
@@ -420,7 +437,7 @@ def values_for_grant(columns: list[str], grant: TCCGrant) -> list[object]:
     values: dict[str, object] = {
         "service": grant.service,
         "client": grant.client,
-        "client_type": 1,
+        "client_type": grant.client_type,
         "allowed": 1,
         "prompt_count": 1,
         "csreq": None,
@@ -461,12 +478,30 @@ def build_default_tcc_grants(clients: list[str], receivers: list[str]) -> list[T
     grants: list[TCCGrant] = []
     for client in clients:
         for service in DEFAULT_TCC_SERVICES:
-            grants.append(TCCGrant(service=service, client=client))
+            grants.append(TCCGrant(service=service, client=client, client_type=1))
         for receiver in receivers:
             grants.append(
                 TCCGrant(
                     service="kTCCServiceAppleEvents",
                     client=client,
+                    client_type=1,
+                    receiver=receiver,
+                )
+            )
+    return grants
+
+
+def build_bundle_id_tcc_grants(bundle_ids: list[str], receivers: list[str]) -> list[TCCGrant]:
+    grants: list[TCCGrant] = []
+    for bundle_id in bundle_ids:
+        for service in DEFAULT_TCC_SERVICES:
+            grants.append(TCCGrant(service=service, client=bundle_id, client_type=0))
+        for receiver in receivers:
+            grants.append(
+                TCCGrant(
+                    service="kTCCServiceAppleEvents",
+                    client=bundle_id,
+                    client_type=0,
                     receiver=receiver,
                 )
             )
@@ -482,6 +517,7 @@ def apply_seed(
     users: list[str] | None,
     appletargets: list[str],
     tcc_clients: list[str],
+    tcc_bundle_ids: list[str],
 ) -> int:
     say(f"[seed] data_root={data_root}")
     warnings: list[str] = []
@@ -498,7 +534,10 @@ def apply_seed(
                 f"System TCC.db not found at {system_db}. Is this the guest data volume root?"
             )
 
-        grants = build_default_tcc_grants(tcc_clients, appletargets)
+        grants = [
+            *build_default_tcc_grants(tcc_clients, appletargets),
+            *build_bundle_id_tcc_grants(tcc_bundle_ids, appletargets),
+        ]
         patched = upsert_tcc_grants(system_db, grants)
         say(f"[seed] patched system TCC.db: {system_db} ({patched} grants)")
 
@@ -515,9 +554,19 @@ def apply_seed(
 
 def main() -> int:
     ns = parse_args()
-    cidrs = ns.cidrs or DEFAULT_LOCAL_NETWORK_CIDRS.copy()
-    appletargets = ns.appleevent_targets or DEFAULT_APPLEEVENT_TARGETS.copy()
-    tcc_clients = ensure_absolute_exec_paths(ns.tcc_clients or [])
+    cidrs = merge_unique(
+        DEFAULT_LOCAL_NETWORK_CIDRS.copy(), [str(item) for item in (ns.cidrs or [])]
+    )
+    appletargets = merge_unique(
+        DEFAULT_APPLEEVENT_TARGETS.copy(), [str(item) for item in (ns.appleevent_targets or [])]
+    )
+    tcc_clients = merge_unique(
+        DEFAULT_TCC_CLIENTS.copy(),
+        ensure_absolute_exec_paths([str(item) for item in (ns.tcc_clients or [])]),
+    )
+    tcc_bundle_ids = merge_unique(
+        DEFAULT_TCC_BUNDLE_IDS.copy(), [str(item) for item in (ns.tcc_bundle_ids or [])]
+    )
 
     if ns.mounted_root:
         data_root = resolve_existing_path(ns.mounted_root)
@@ -529,6 +578,7 @@ def main() -> int:
             users=ns.users,
             appletargets=appletargets,
             tcc_clients=tcc_clients,
+            tcc_bundle_ids=tcc_bundle_ids,
         )
 
     bundle = resolve_existing_path(ns.bundle)
@@ -541,6 +591,7 @@ def main() -> int:
             users=ns.users,
             appletargets=appletargets,
             tcc_clients=tcc_clients,
+            tcc_bundle_ids=tcc_bundle_ids,
         )
 
 

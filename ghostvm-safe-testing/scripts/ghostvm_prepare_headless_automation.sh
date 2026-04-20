@@ -12,6 +12,7 @@ Usage:
     [--user <guest-user> ...] \
     [--appleevent-target <bundle-id> ...] \
     [--tcc-client </abs/path> ...] \
+    [--tcc-bundle-id <bundle-id> ...] \
     [--skip-local-network] \
     [--skip-tcc] \
     [--prime-automation] \
@@ -22,9 +23,10 @@ Prepares a disposable GhostVM guest for unattended automation by combining:
 
   - offline guest-disk seeding while the VM is stopped
     - Local Network CIDR exemptions (default unless --skip-local-network)
-    - baseline TCC grants for /usr/bin/osascript and /usr/libexec/sshd-keygen-wrapper
+    - baseline TCC grants for /usr/bin/osascript, /usr/libexec/sshd-keygen-wrapper,
+      and GhostTools (org.ghostvm.com.ghostvm.guest-tools)
       across Accessibility, ScreenCapture, PostEvent, and AppleEvents to
-      System Events / Finder / Safari (default unless --skip-tcc)
+      System Events / Finder / Safari / Mail (default unless --skip-tcc)
 
   - optional interactive priming after boot
     - --prime-automation: triggers AppleEvents prompt in the guest UI
@@ -92,6 +94,7 @@ CIDRS=()
 USERS=()
 APPLEEVENT_TARGETS=()
 TCC_CLIENTS=()
+TCC_BUNDLE_IDS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -129,6 +132,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --tcc-client)
             TCC_CLIENTS+=("$2")
+            shift 2
+            ;;
+        --tcc-bundle-id)
+            TCC_BUNDLE_IDS+=("$2")
             shift 2
             ;;
         --skip-local-network)
@@ -357,6 +364,9 @@ for target in "${APPLEEVENT_TARGETS[@]}"; do
 done
 for client in "${TCC_CLIENTS[@]}"; do
     seed_args+=(--tcc-client "$client")
+done
+for bundle_id in "${TCC_BUNDLE_IDS[@]}"; do
+    seed_args+=(--tcc-bundle-id "$bundle_id")
 done
 
 say "[prep] applying offline guest-disk seed"

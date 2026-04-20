@@ -77,6 +77,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
                 users=["agent"],
                 appletargets=["com.apple.systemevents", "com.apple.TextEdit"],
                 tcc_clients=["/usr/bin/osascript"],
+                tcc_bundle_ids=[],
             )
             self.assertEqual(rc, 0)
 

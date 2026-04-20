@@ -71,7 +71,8 @@ The recommended path for **disposable VMs** is:
 2. Keep the VM **stopped**.
 3. Offline-seed the guest `disk.img` from the host:
    - Local Network CIDR exemptions
-   - baseline TCC rows for `/usr/bin/osascript` and `/usr/libexec/sshd-keygen-wrapper`
+   - baseline TCC rows for `/usr/bin/osascript`, `/usr/libexec/sshd-keygen-wrapper`, and GhostTools (`org.ghostvm.com.ghostvm.guest-tools`)
+     (including AppleEvents to System Events / Finder / Safari / Mail)
 4. Create a new snapshot (for example, `automation-ready`).
 
 ```bash
@@ -101,6 +102,9 @@ Useful extensions:
 
 # extra sender binary whose path should get the same baseline grants
 --tcc-client /usr/local/bin/cliclick
+
+# extra app bundle id to grant (Accessibility/ScreenCapture/PostEvent/AppleEvents)
+--tcc-bundle-id com.apple.Terminal
 
 # patch only the intended guest user(s)
 --user agent
