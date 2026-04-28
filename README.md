@@ -144,6 +144,7 @@ The pragmatic path for disposable VMs is:
 3. Offline-seed the guest `disk.img` from the host:
    - Local Network CIDR exemptions
    - baseline TCC rows for `/usr/bin/osascript` and `/usr/libexec/sshd-keygen-wrapper`
+   - Safari's **Allow JavaScript from Apple Events** preference for detected guest users
 4. Create a new snapshot, for example `automation-ready`.
 
 ```bash
@@ -169,6 +170,12 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
   --vm <Name> \
   --snapshot automation-ready \
   --tcc-client /usr/local/bin/cliclick
+
+# leave Safari's JavaScript-from-Apple-Events setting unchanged
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --skip-safari-js-apple-events
 ```
 
 Use interactive priming only for approvals that are intentionally outside the seeded baseline:

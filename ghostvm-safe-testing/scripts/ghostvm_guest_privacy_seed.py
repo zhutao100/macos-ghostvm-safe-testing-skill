@@ -89,6 +89,14 @@ def parse_args() -> argparse.Namespace:
         help="Do not patch TCC.db files.",
     )
     ap.add_argument(
+        "--skip-safari-js-apple-events",
+        action="store_true",
+        help=(
+            "Do not enable Safari's Allow JavaScript from Apple Events preference "
+            "for detected or selected guest users."
+        ),
+    )
+    ap.add_argument(
         "--cidr",
         action="append",
         dest="cidrs",
@@ -338,6 +346,66 @@ def write_local_network_defaults(data_root: Path, cidrs: list[str]) -> Path:
     return prefs_path
 
 
+def guest_user_homes(
+    data_root: Path, explicit_users: list[str] | None
+) -> tuple[list[Path], list[str]]:
+    warnings: list[str] = []
+    homes: list[Path] = []
+
+    def home_for(name: str) -> Path:
+        if name == "root":
+            return data_root / "private" / "var" / "root"
+        return data_root / "Users" / name
+
+    if explicit_users:
+        for name in explicit_users:
+            home = home_for(name)
+            if home.is_dir():
+                homes.append(home)
+            else:
+                warnings.append(f"requested user '{name}' has no home directory at {home}")
+        return homes, warnings
+
+    users_dir = data_root / "Users"
+    if users_dir.is_dir():
+        for home in sorted(users_dir.iterdir()):
+            if not home.is_dir() or home.name in {"Shared", ".localized"}:
+                continue
+            homes.append(home)
+
+    if not homes:
+        warnings.append("no guest user home directories were found for Safari preferences")
+    return homes, warnings
+
+
+def write_safari_js_from_apple_events_preference(
+    data_root: Path, explicit_users: list[str] | None
+) -> tuple[list[Path], list[str]]:
+    homes, warnings = guest_user_homes(data_root, explicit_users)
+    written: list[Path] = []
+
+    for home in homes:
+        prefs_path = (
+            home
+            / "Library"
+            / "Containers"
+            / "com.apple.Safari"
+            / "Data"
+            / "Library"
+            / "Preferences"
+            / "com.apple.Safari.plist"
+        )
+        payload: dict[str, object] = {}
+        if prefs_path.exists():
+            with prefs_path.open("rb") as fh:
+                payload = plistlib.load(fh)
+        payload["AllowJavaScriptFromAppleEvents"] = True
+        atomic_write_plist(prefs_path, payload)
+        written.append(prefs_path)
+
+    return written, warnings
+
+
 def existing_user_db_paths(
     data_root: Path, explicit_users: list[str] | None
 ) -> tuple[list[Path], list[str]]:
@@ -513,6 +581,7 @@ def apply_seed(
     *,
     skip_local_network: bool,
     skip_tcc: bool,
+    skip_safari_js_apple_events: bool,
     cidrs: list[str],
     users: list[str] | None,
     appletargets: list[str],
@@ -526,6 +595,14 @@ def apply_seed(
         prefs_path = write_local_network_defaults(data_root, cidrs)
         say(f"[seed] wrote Local Network CIDR exemptions: {prefs_path}")
         say(f"[seed] cidrs={' '.join(cidrs)}")
+
+    if not skip_safari_js_apple_events:
+        prefs_paths, safari_warnings = write_safari_js_from_apple_events_preference(
+            data_root, users
+        )
+        warnings.extend(safari_warnings)
+        for prefs_path in prefs_paths:
+            say(f"[seed] enabled Safari JavaScript from Apple Events: {prefs_path}")
 
     if not skip_tcc:
         system_db = data_root / "Library" / "Application Support" / "com.apple.TCC" / "TCC.db"
@@ -574,6 +651,7 @@ def main() -> int:
             data_root,
             skip_local_network=ns.skip_local_network,
             skip_tcc=ns.skip_tcc,
+            skip_safari_js_apple_events=ns.skip_safari_js_apple_events,
             cidrs=cidrs,
             users=ns.users,
             appletargets=appletargets,
@@ -587,6 +665,7 @@ def main() -> int:
             data_root,
             skip_local_network=ns.skip_local_network,
             skip_tcc=ns.skip_tcc,
+            skip_safari_js_apple_events=ns.skip_safari_js_apple_events,
             cidrs=cidrs,
             users=ns.users,
             appletargets=appletargets,

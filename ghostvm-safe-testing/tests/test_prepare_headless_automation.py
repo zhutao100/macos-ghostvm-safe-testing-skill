@@ -19,6 +19,7 @@ class TestPrepareHeadlessAutomationScript(unittest.TestCase):
         self.assertIn("replaces it", proc.stdout)
         self.assertIn("--appleevent-target", proc.stdout)
         self.assertIn("--tcc-client", proc.stdout)
+        self.assertIn("--skip-safari-js-apple-events", proc.stdout)
         self.assertIn("--prime-local-network", proc.stdout)
 
     def test_offline_seed_happens_before_vm_start(self) -> None:

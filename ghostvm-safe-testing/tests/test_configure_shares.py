@@ -62,9 +62,10 @@ class TestConfigureShares(unittest.TestCase):
             self.assertEqual(rw_entry["path"], str(rw.resolve()))
             self.assertFalse(rw_entry["readOnly"])
 
-            # Legacy keys preserved.
+            # Legacy path is preserved; global read-only is neutralized so it
+            # cannot override per-share writability in older/newer builders.
             self.assertEqual(updated["sharedFolderPath"], "/legacy")
-            self.assertTrue(updated["sharedFolderReadOnly"])
+            self.assertFalse(updated["sharedFolderReadOnly"])
 
     def test_dry_run_does_not_write(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -73,6 +73,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
                 data_root,
                 skip_local_network=False,
                 skip_tcc=False,
+                skip_safari_js_apple_events=False,
                 cidrs=["10.0.0.0/8"],
                 users=["agent"],
                 appletargets=["com.apple.systemevents", "com.apple.TextEdit"],
@@ -112,6 +113,52 @@ class TestGuestPrivacySeed(unittest.TestCase):
                 payload = plistlib.load(fh)
             self.assertEqual(payload["AllowedEthernetLocalNetworkAddresses"], ["10.0.0.0/8"])
             self.assertEqual(payload["AllowedWiFiLocalNetworkAddresses"], ["10.0.0.0/8"])
+
+            safari_prefs = (
+                data_root
+                / "Users"
+                / "agent"
+                / "Library"
+                / "Containers"
+                / "com.apple.Safari"
+                / "Data"
+                / "Library"
+                / "Preferences"
+                / "com.apple.Safari.plist"
+            )
+            with safari_prefs.open("rb") as fh:
+                payload = plistlib.load(fh)
+            self.assertIs(payload["AllowJavaScriptFromAppleEvents"], True)
+
+    def test_write_safari_js_preference_preserves_existing_values(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_root = Path(td)
+            prefs = (
+                data_root
+                / "Users"
+                / "agent"
+                / "Library"
+                / "Containers"
+                / "com.apple.Safari"
+                / "Data"
+                / "Library"
+                / "Preferences"
+                / "com.apple.Safari.plist"
+            )
+            prefs.parent.mkdir(parents=True, exist_ok=True)
+            with prefs.open("wb") as fh:
+                plistlib.dump({"IncludeDevelopMenu": True}, fh)
+
+            written, warnings = seed.write_safari_js_from_apple_events_preference(
+                data_root, ["agent"]
+            )
+
+            self.assertEqual(written, [prefs])
+            self.assertEqual(warnings, [])
+            with prefs.open("rb") as fh:
+                payload = plistlib.load(fh)
+            self.assertIs(payload["IncludeDevelopMenu"], True)
+            self.assertIs(payload["AllowJavaScriptFromAppleEvents"], True)
 
     def test_upsert_tcc_grants_supports_legacy_schema(self) -> None:
         with tempfile.TemporaryDirectory() as td:

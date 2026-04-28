@@ -107,8 +107,10 @@ def main() -> int:
     else:
         cfg["modifiedAt"] = now.isoformat().replace("+00:00", "Z")
 
-    # Leave legacy keys (sharedFolderPath/sharedFolderReadOnly) untouched.
-    # VMConfigurationBuilder prefers sharedFolders when non-empty.
+    # Keep legacy config from forcing every share read-only on GhostVM builds
+    # that still consult sharedFolderReadOnly alongside sharedFolders.
+    if "sharedFolderReadOnly" in cfg:
+        cfg["sharedFolderReadOnly"] = False
 
     _write_json(config_path, cfg, dry_run=ns.dry_run)
 

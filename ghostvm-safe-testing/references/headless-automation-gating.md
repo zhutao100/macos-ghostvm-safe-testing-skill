@@ -21,6 +21,7 @@ That matches GhostVM’s coarse-grained snapshot model and keeps the resulting s
 | --- | --- | --- |
 | Baseline AppleScript / UI automation permissions | Offline-seed `TCC.db` while the VM is stopped | Deterministic, snapshot-friendly, and avoids guest-live setup friction |
 | Baseline Local Network access for known automation subnets | Offline-seed `com.apple.network.local-network` CIDR defaults while the VM is stopped | Avoids per-app prompts for those ranges |
+| Safari DOM automation with AppleScript `do JavaScript` | Offline-seed Safari's `AllowJavaScriptFromAppleEvents` preference for guest users | TCC AppleEvents grants alone do not enable Safari's app-level JavaScript gate |
 | Extra AppleEvents receivers or sender binaries | Extend the offline seed (`--appleevent-target`, `--tcc-client`) | Keeps prep reproducible |
 | Traffic outside the seeded Local Network CIDRs | Use a root launch daemon / Terminal / SSH context inside the guest, or do one-time interactive priming and snapshot the result | Local Network is not solved by `TCC.db` edits |
 | Re-testing “first run” behavior | Revert to a clean snapshot | Local Network state is not cleanly resettable in place |
@@ -103,6 +104,8 @@ and these default AppleEvents receivers:
 - `com.apple.finder`
 - `com.apple.Safari`
 
+Safari has an additional app-level setting for DOM JavaScript via Apple Events. The offline seed enables `AllowJavaScriptFromAppleEvents` in the Safari container preferences for detected guest users by default. Pass `--skip-safari-js-apple-events` when the guest snapshot should leave that Safari setting unchanged.
+
 ### Extending the baseline
 
 If your actual requester differs, extend the seed explicitly instead of relying on ad hoc guest edits.
@@ -152,7 +155,7 @@ That does:
 1. stop the VM if needed
 2. revert `clean-state` if requested
 3. mount `disk.img` from the host
-4. seed Local Network defaults and baseline TCC rows
+4. seed Local Network defaults, Safari's JavaScript-from-Apple-Events preference, and baseline TCC rows
 5. detach the image
 6. create `automation-ready`
 

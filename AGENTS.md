@@ -12,7 +12,7 @@ Everything else exists to support that skill (scripts, assets, references).
 - `ghostvm-safe-testing/scripts/` — executable helpers used by agents
   - `ghostvm_doctor.sh` — host + VM sanity checks
   - `ghostvm_guest_ready.sh` — guest dev-ready checks (CLT, optional Rosetta)
-  - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network defaults and baseline TCC rows
+  - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network defaults, Safari JavaScript-from-Apple-Events preference, and baseline TCC rows
   - `ghostvm_prepare_headless_automation.sh` — revert base snapshot → offline seed → optional priming → create prepared snapshot
   - `ghostvm_safe_test.sh` — safe ‘revert → copy → run → export’ loop
 - `ghostvm-safe-testing/assets/` — copy-ready templates for per-project configuration

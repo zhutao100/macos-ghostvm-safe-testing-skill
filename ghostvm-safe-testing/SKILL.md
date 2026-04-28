@@ -73,6 +73,7 @@ The recommended path for **disposable VMs** is:
    - Local Network CIDR exemptions
    - baseline TCC rows for `/usr/bin/osascript`, `/usr/libexec/sshd-keygen-wrapper`, and GhostTools (`org.ghostvm.com.ghostvm.guest-tools`)
      (including AppleEvents to System Events / Finder / Safari / Mail)
+   - Safari's **Allow JavaScript from Apple Events** preference for detected guest users
 4. Create a new snapshot (for example, `automation-ready`).
 
 ```bash
@@ -108,6 +109,9 @@ Useful extensions:
 
 # patch only the intended guest user(s)
 --user agent
+
+# leave Safari's JavaScript-from-Apple-Events setting unchanged
+--skip-safari-js-apple-events
 ```
 
 Then run the safe loop using the prepared snapshot:
@@ -182,6 +186,7 @@ Keep these true unless the user explicitly opts out:
 The helper seeds:
 
 - root-domain Local Network preferences (`com.apple.network.local-network`)
+- Safari's `AllowJavaScriptFromAppleEvents` container preference for detected guest users
 - system and detected per-user `TCC.db` files
 
 If your workflow still prompts after that, the usual cause is that the actual requester binary or AppleEvents receiver differs from the seeded baseline. Add `--tcc-client` / `--appleevent-target`, or use priming for that extra case.

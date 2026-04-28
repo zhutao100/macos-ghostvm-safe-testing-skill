@@ -15,6 +15,7 @@ Usage:
     [--tcc-bundle-id <bundle-id> ...] \
     [--skip-local-network] \
     [--skip-tcc] \
+    [--skip-safari-js-apple-events] \
     [--prime-automation] \
     [--prime-local-network] \
     [--keep-running]
@@ -27,6 +28,8 @@ Prepares a disposable GhostVM guest for unattended automation by combining:
       and GhostTools (org.ghostvm.com.ghostvm.guest-tools)
       across Accessibility, ScreenCapture, PostEvent, and AppleEvents to
       System Events / Finder / Safari / Mail (default unless --skip-tcc)
+    - Safari's Allow JavaScript from Apple Events preference for detected or
+      selected guest users (default unless --skip-safari-js-apple-events)
 
   - optional interactive priming after boot
     - --prime-automation: triggers AppleEvents prompt in the guest UI
@@ -89,6 +92,7 @@ PRIME_AUTOMATION=0
 PRIME_LOCAL_NETWORK=0
 SKIP_LOCAL_NETWORK=0
 SKIP_TCC=0
+SKIP_SAFARI_JS_APPLE_EVENTS=0
 
 CIDRS=()
 USERS=()
@@ -144,6 +148,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-tcc)
             SKIP_TCC=1
+            shift
+            ;;
+        --skip-safari-js-apple-events)
+            SKIP_SAFARI_JS_APPLE_EVENTS=1
             shift
             ;;
         --prime-automation)
@@ -229,6 +237,7 @@ say "[prep] bundle=$BUNDLE_PATH"
 [[ -n "$SNAPSHOT_NAME" ]] && say "[prep] snapshot=$SNAPSHOT_NAME"
 [[ $SKIP_LOCAL_NETWORK -eq 1 ]] && say "[prep] local_network=skip"
 [[ $SKIP_TCC -eq 1 ]] && say "[prep] tcc=skip"
+[[ $SKIP_SAFARI_JS_APPLE_EVENTS -eq 1 ]] && say "[prep] safari_js_apple_events=skip"
 
 PID_FILE="$BUNDLE_PATH/vmctl.pid"
 vm_pid_alive() {
@@ -352,6 +361,9 @@ if [[ $SKIP_LOCAL_NETWORK -eq 1 ]]; then
 fi
 if [[ $SKIP_TCC -eq 1 ]]; then
     seed_args+=(--skip-tcc)
+fi
+if [[ $SKIP_SAFARI_JS_APPLE_EVENTS -eq 1 ]]; then
+    seed_args+=(--skip-safari-js-apple-events)
 fi
 for cidr in "${CIDRS[@]}"; do
     seed_args+=(--cidr "$cidr")
