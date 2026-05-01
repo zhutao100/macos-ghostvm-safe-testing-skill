@@ -46,6 +46,11 @@ class TestSafeTestOrdering(unittest.TestCase):
         text = SAFE_TEST_SH.read_text(encoding="utf-8")
         self.assertIn("AppleVirtIOFS", text)
 
+    def test_safe_runner_waits_for_health_after_socket(self) -> None:
+        text = SAFE_TEST_SH.read_text(encoding="utf-8")
+        self.assertIn("[runner] waiting for GhostTools /health", text)
+        self.assertIn("GhostTools /health failed after waiting for guest login", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -79,6 +79,8 @@ class TestGuestPrivacySeed(unittest.TestCase):
                 appletargets=["com.apple.systemevents", "com.apple.TextEdit"],
                 tcc_clients=["/usr/bin/osascript"],
                 tcc_bundle_ids=[],
+                xcode_ui_testing=False,
+                xcode_apps=[],
             )
             self.assertEqual(rc, 0)
 
@@ -129,6 +131,160 @@ class TestGuestPrivacySeed(unittest.TestCase):
             with safari_prefs.open("rb") as fh:
                 payload = plistlib.load(fh)
             self.assertIs(payload["AllowJavaScriptFromAppleEvents"], True)
+
+    def test_xcode_ui_testing_candidates_include_xcode_helper_and_xcodebuild(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_root = Path(td)
+            xcode_app = data_root / "Applications" / "Xcode.app"
+            self._write_bundle(xcode_app, "com.apple.dt.Xcode", "Xcode")
+            xcodebuild = xcode_app / "Contents" / "Developer" / "usr" / "bin" / "xcodebuild"
+            xcodebuild.parent.mkdir(parents=True, exist_ok=True)
+            xcodebuild.touch()
+            xcrun = xcode_app / "Contents" / "Developer" / "usr" / "bin" / "xcrun"
+            xcrun.touch()
+
+            helper = (
+                xcode_app
+                / "Contents"
+                / "Developer"
+                / "Platforms"
+                / "MacOSX.platform"
+                / "Developer"
+                / "Library"
+                / "Xcode"
+                / "Agents"
+                / "Xcode Helper.app"
+            )
+            self._write_bundle(helper, "com.apple.dt.Xcode-Helper", "Xcode Helper")
+
+            path_clients, bundle_ids, warnings = seed.xcode_ui_testing_tcc_candidates(
+                data_root, ["/Applications/Xcode.app"]
+            )
+
+            self.assertEqual(warnings, [])
+            self.assertIn("com.apple.dt.Xcode", bundle_ids)
+            self.assertIn("com.apple.dt.Xcode-Helper", bundle_ids)
+            self.assertIn("/Applications/Xcode.app/Contents/MacOS/Xcode", path_clients)
+            self.assertIn(
+                "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild", path_clients
+            )
+            self.assertIn("/Applications/Xcode.app/Contents/Developer/usr/bin/xcrun", path_clients)
+            self.assertIn(
+                "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Xcode/Agents/Xcode Helper.app/Contents/MacOS/Xcode Helper",
+                path_clients,
+            )
+            self.assertIn("/usr/bin/xcodebuild", path_clients)
+            self.assertIn("/usr/bin/xcrun", path_clients)
+
+    def test_apply_seed_can_patch_xcode_ui_testing_tcc_clients(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_root = Path(td)
+            system_db = data_root / "Library" / "Application Support" / "com.apple.TCC" / "TCC.db"
+            self._make_modern_tcc_db(system_db)
+            self._write_bundle(
+                data_root / "Applications" / "Xcode.app", "com.apple.dt.Xcode", "Xcode"
+            )
+            helper = (
+                data_root
+                / "Applications"
+                / "Xcode.app"
+                / "Contents"
+                / "Developer"
+                / "Platforms"
+                / "MacOSX.platform"
+                / "Developer"
+                / "Library"
+                / "Xcode"
+                / "Agents"
+                / "Xcode Helper.app"
+            )
+            self._write_bundle(helper, "com.apple.dt.Xcode-Helper", "Xcode Helper")
+            xcrun = (
+                data_root
+                / "Applications"
+                / "Xcode.app"
+                / "Contents"
+                / "Developer"
+                / "usr"
+                / "bin"
+                / "xcrun"
+            )
+            xcrun.parent.mkdir(parents=True, exist_ok=True)
+            xcrun.touch()
+
+            rc = seed.apply_seed(
+                data_root,
+                skip_local_network=True,
+                skip_tcc=False,
+                skip_safari_js_apple_events=True,
+                cidrs=[],
+                users=[],
+                appletargets=[],
+                tcc_clients=[],
+                tcc_bundle_ids=[],
+                xcode_ui_testing=True,
+                xcode_apps=["/Applications/Xcode.app"],
+            )
+            self.assertEqual(rc, 0)
+
+            with sqlite3.connect(system_db) as conn:
+                rows = conn.execute("SELECT service, client, client_type FROM access").fetchall()
+
+            self.assertIn(("kTCCServiceDeveloperTool", "com.apple.dt.Xcode", 0), rows)
+            self.assertIn(("kTCCServiceListenEvent", "com.apple.dt.Xcode-Helper", 0), rows)
+            self.assertIn(
+                ("kTCCServiceDeveloperTool", "/Applications/Xcode.app/Contents/MacOS/Xcode", 1),
+                rows,
+            )
+            self.assertIn(
+                (
+                    "kTCCServiceListenEvent",
+                    "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Xcode/Agents/Xcode Helper.app/Contents/MacOS/Xcode Helper",
+                    1,
+                ),
+                rows,
+            )
+            self.assertIn(
+                (
+                    "kTCCServiceDeveloperTool",
+                    "/Applications/Xcode.app/Contents/Developer/usr/bin/xcrun",
+                    1,
+                ),
+                rows,
+            )
+
+    def test_tcc_service_argument_extends_default_services(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_root = Path(td)
+            system_db = data_root / "Library" / "Application Support" / "com.apple.TCC" / "TCC.db"
+            self._make_modern_tcc_db(system_db)
+
+            rc = seed.apply_seed(
+                data_root,
+                skip_local_network=True,
+                skip_tcc=False,
+                skip_safari_js_apple_events=True,
+                cidrs=[],
+                users=[],
+                appletargets=[],
+                tcc_clients=["/usr/bin/osascript"],
+                tcc_bundle_ids=[],
+                tcc_services=["kTCCServiceAccessibility", "kTCCServiceListenEvent"],
+            )
+            self.assertEqual(rc, 0)
+
+            with sqlite3.connect(system_db) as conn:
+                services = {row[0] for row in conn.execute("SELECT service FROM access").fetchall()}
+
+            self.assertEqual(
+                services,
+                {
+                    "kTCCServiceAccessibility",
+                    "kTCCServiceScreenCapture",
+                    "kTCCServicePostEvent",
+                    "kTCCServiceListenEvent",
+                },
+            )
 
     def test_write_safari_js_preference_preserves_existing_values(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -269,6 +425,15 @@ class TestGuestPrivacySeed(unittest.TestCase):
             )
             with self.assertRaises(seed.SeedError):
                 seed.upsert_tcc_grants(db_path, grants)
+
+    @staticmethod
+    def _write_bundle(path: Path, bundle_id: str, executable: str) -> None:
+        contents = path / "Contents"
+        macos = contents / "MacOS"
+        macos.mkdir(parents=True, exist_ok=True)
+        with (contents / "Info.plist").open("wb") as fh:
+            plistlib.dump({"CFBundleIdentifier": bundle_id, "CFBundleExecutable": executable}, fh)
+        (macos / executable).touch()
 
     @staticmethod
     def _make_modern_tcc_db(path: Path) -> None:

@@ -11,9 +11,11 @@ Everything else exists to support that skill (scripts, assets, references).
 - `ghostvm-safe-testing/SKILL.md` — primary entrypoint (keep it concise; progressive disclosure)
 - `ghostvm-safe-testing/scripts/` — executable helpers used by agents
   - `ghostvm_doctor.sh` — host + VM sanity checks
-  - `ghostvm_guest_ready.sh` — guest dev-ready checks (CLT, optional Rosetta)
-  - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network defaults, Safari JavaScript-from-Apple-Events preference, and baseline TCC rows
+  - `ghostvm_guest_ready.sh` — guest dev-ready checks (CLT, optional Rosetta, optional Xcode UI-testing readiness)
+  - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network defaults, Safari JavaScript-from-Apple-Events preference, baseline TCC rows, and Xcode UI-testing TCC candidates
+  - `ghostvm_guest_bootstrap_xcode_ui_testing.sh` — in-guest root bootstrap for Xcode UI-testing prompts (Automation Mode, Developer Tools, Xcode first launch)
   - `ghostvm_prepare_headless_automation.sh` — revert base snapshot → offline seed → optional priming → create prepared snapshot
+  - `ghostvm_prepare_xcode_ui_testing.sh` — convenience wrapper for standard Xcode/XCTest UI-testing snapshot prep
   - `ghostvm_safe_test.sh` — safe ‘revert → copy → run → export’ loop
 - `ghostvm-safe-testing/assets/` — copy-ready templates for per-project configuration
 - `ghostvm-safe-testing/references/` — deeper docs for edge cases / troubleshooting
@@ -33,12 +35,15 @@ Everything else exists to support that skill (scripts, assets, references).
 
 3. **Default to snapshot-driven prep for privacy gating**
    - Treat `clean-state` → offline seed → `automation-ready` as the normal preparation path.
+   - Treat `clean-state` → `--xcode-ui-testing` → `xcode-ui-ready` as the normal path for XCTest/macOS UI tests.
    - Use interactive priming only for approvals that are intentionally outside the seeded baseline.
 
 4. **Keep the prep boundary correct**
    - Edit privacy state while the VM is stopped.
+   - Keep Automation Mode / Developer Tools setup as a guest-root bootstrap because it is not solved by `TCC.db` edits.
+   - Allow `GHOSTVM_GUEST_SUDO_PASSWORD` only for disposable guests when noninteractive sudo is required; never persist guest passwords in docs/configs.
    - Do not move baseline TCC/Local Network setup back into guest-live instructions unless there is a concrete reason.
-   - If a change depends on guest identity, extend `--tcc-client`, `--appleevent-target`, `--user`, or the references docs.
+   - If a change depends on guest identity, extend `--tcc-client`, `--tcc-bundle-id`, `--appleevent-target`, `--user`, `--xcode-app`, or the references docs.
 
 5. **Be explicit about assumptions**
    - macOS 15+ on Apple Silicon
@@ -78,6 +83,14 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
   --vm <Name> \
   --base-snapshot clean-state \
   --snapshot automation-ready
+
+# Xcode/XCTest UI-testing snapshot
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --snapshot xcode-ui-ready \
+  --xcode-ui-testing \
+  --user agent
 ```
 
 ## Style

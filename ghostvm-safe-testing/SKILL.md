@@ -5,7 +5,7 @@ license: MIT
 compatibility: macOS 15+ on Apple Silicon with GhostVM installed, a prepared .GhostVM bundle, GhostTools running in the guest, and a clean snapshot.
 metadata:
   author: ghostvm-safe-testing-skill
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # GhostVM safe testing workflow (agent-facing)
@@ -17,13 +17,14 @@ This skill provides a **repeatable**, **low-risk** workflow to run commands/test
 - **Snapshot revert** to reset VM disk state.
 - **Read-only host shared folder** for inputs (repo/data).
 - **Writable host shared folder** for outputs (artifacts only).
-- **Offline guest-disk seeding** to pre-bake Local Network and baseline TCC state into disposable VM snapshots.
+- **Offline guest-disk seeding** to pre-bake Local Network, baseline TCC, and Xcode UI-testing state into disposable VM snapshots.
 
 ### Use this skill when
 
 - You need to run tests against host data, but must prevent host mutation.
 - You want a deterministic “revert → run → export artifacts” loop.
 - You need guest automation that should not stop on first-use TCC / Local Network dialogs.
+- You need Xcode/XCTest macOS UI tests to run in a disposable guest without the Automation Mode auth prompt.
 - You are on macOS 15+ (Apple Silicon) and GhostVM is installed.
 
 ### Do not use this skill when
@@ -59,11 +60,14 @@ Use this when the VM is a fresh macOS install and you want to avoid CLI workflow
 
 ```bash
 scripts/ghostvm_guest_ready.sh --vm <Name>
+
+# when the snapshot is intended for Xcode/XCTest macOS UI tests
+scripts/ghostvm_guest_ready.sh --vm <Name> --require-xcode-ui-testing
 ```
 
 See: `references/macos-dev-testing-ready.md`
 
-### 1c) Prepare an unattended automation snapshot (recommended when guest commands use AppleScript/UI automation or local-network discovery)
+### 1c) Prepare an unattended automation snapshot (recommended for AppleScript/UI automation, Xcode UI tests, or local-network discovery)
 
 The recommended path for **disposable VMs** is:
 
@@ -74,7 +78,12 @@ The recommended path for **disposable VMs** is:
    - baseline TCC rows for `/usr/bin/osascript`, `/usr/libexec/sshd-keygen-wrapper`, and GhostTools (`org.ghostvm.com.ghostvm.guest-tools`)
      (including AppleEvents to System Events / Finder / Safari / Mail)
    - Safari's **Allow JavaScript from Apple Events** preference for detected guest users
-4. Create a new snapshot (for example, `automation-ready`).
+   - when `--xcode-ui-testing` is used: Xcode.app / Xcode Helper.app / xcodebuild / xcrun TCC candidates and Xcode UI-test services
+4. Optionally boot once for noninteractive Xcode UI-testing bootstrap:
+   - accept the Xcode license and run first-launch setup where possible
+   - enable Developer Tools security policy
+   - enable Automation Mode without per-run user authentication
+5. Create a new snapshot (for example, `automation-ready` or `xcode-ui-ready`).
 
 ```bash
 scripts/ghostvm_prepare_headless_automation.sh \
@@ -84,6 +93,15 @@ scripts/ghostvm_prepare_headless_automation.sh \
 ```
 
 If the snapshot already exists, the helper replaces it (delete + recreate) so re-running the command is safe.
+
+For Xcode/XCTest macOS UI tests, use the explicit Xcode path. The in-guest bootstrap needs noninteractive sudo in the disposable guest. Use temporary passwordless sudo, pass a known disposable-guest password through `GHOSTVM_GUEST_SUDO_PASSWORD` for that run only, or run `ghostvm_guest_bootstrap_xcode_ui_testing.sh` manually once inside the guest before snapshotting:
+
+```bash
+scripts/ghostvm_prepare_xcode_ui_testing.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --user agent
+```
 
 Use priming only when you need extra app-specific approvals beyond the seeded baseline:
 
@@ -107,8 +125,17 @@ Useful extensions:
 # extra app bundle id to grant (Accessibility/ScreenCapture/PostEvent/AppleEvents)
 --tcc-bundle-id com.apple.Terminal
 
+# extra TCC service when attribution shows a new gate
+--tcc-service kTCCServiceListenEvent
+
 # patch only the intended guest user(s)
 --user agent
+
+# include Xcode.app, Xcode Helper.app, xcodebuild/xcrun candidates, and guest-side Automation Mode setup
+--xcode-ui-testing
+
+# use a non-default Xcode.app path in the guest image
+--xcode-app /Applications/Xcode-16.4.app
 
 # leave Safari's JavaScript-from-Apple-Events setting unchanged
 --skip-safari-js-apple-events
@@ -175,9 +202,18 @@ Keep these true unless the user explicitly opts out:
 2. **Work happens on guest-local copies.**
 3. **Only a dedicated host output directory is writable.**
 4. **VM state is reset via snapshot revert before each run.**
-5. **Automation/TCC and Local Network state is baked into disposable snapshots, not granted ad hoc during agent runs.**
+5. **Automation/TCC, Automation Mode, Developer Tools, and Local Network state are baked into disposable snapshots, not granted ad hoc during agent runs.**
 
 ## Important behavior notes
+
+### Xcode/XCTest UI testing has two gates
+
+For macOS UI tests, classic TCC seeding is necessary but not sufficient. Use `--xcode-ui-testing` so the preparation helper does both halves:
+
+1. **Offline TCC seed:** add common Xcode UI-testing clients (`Xcode.app`, nested `Xcode Helper.app`, `xcodebuild`, and `xcrun` candidates) plus DeveloperTool and ListenEvent services.
+2. **Guest bootstrap:** run `automationmodetool enable-automationmode-without-authentication`, `DevToolsSecurity -enable`, Xcode license acceptance, and first-launch setup.
+
+`automationmodetool` requires administrator privileges. The helper invokes it through noninteractive sudo inside the disposable guest; prepare that sudo policy up front, set `GHOSTVM_GUEST_SUDO_PASSWORD` only for a disposable guest run, or run the bootstrap script manually once and snapshot the result.
 
 ### Offline guest-disk seeding is the default prep path for disposable VMs
 
@@ -189,7 +225,7 @@ The helper seeds:
 - Safari's `AllowJavaScriptFromAppleEvents` container preference for detected guest users
 - system and detected per-user `TCC.db` files
 
-If your workflow still prompts after that, the usual cause is that the actual requester binary or AppleEvents receiver differs from the seeded baseline. Add `--tcc-client` / `--appleevent-target`, or use priming for that extra case.
+If your workflow still prompts after that, the usual cause is that the actual requester binary, service, or AppleEvents receiver differs from the seeded baseline. Add `--tcc-client`, `--tcc-bundle-id`, `--tcc-service`, or `--appleevent-target`; use priming only for prompts intentionally outside the seeded baseline.
 
 ### Snapshots include `config.json`
 

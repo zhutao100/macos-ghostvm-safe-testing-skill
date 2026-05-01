@@ -211,6 +211,7 @@ class TestShellScriptSmoke(unittest.TestCase):
             env = dict(os.environ)
             env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
             env["GHOSTVM_TEST_STATE_DIR"] = str(state_dir)
+            env["GHOSTVM_DOCTOR_RETRY_SLEEP"] = "0"
 
             proc = subprocess.run(
                 [

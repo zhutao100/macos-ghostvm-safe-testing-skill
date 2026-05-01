@@ -38,6 +38,19 @@ DEFAULT_TCC_SERVICES = [
     "kTCCServiceScreenCapture",
     "kTCCServicePostEvent",
 ]
+DEFAULT_XCODE_TCC_SERVICES = [
+    "kTCCServiceDeveloperTool",
+    "kTCCServiceListenEvent",
+]
+DEFAULT_XCODE_APP_PATHS = ["/Applications/Xcode.app"]
+XCODE_EXECUTABLE_RELATIVE_PATHS = [
+    "Contents/Developer/usr/bin/xcodebuild",
+    "Contents/Developer/usr/bin/xcrun",
+]
+XCODE_STUB_TCC_CLIENTS = [
+    "/usr/bin/xcodebuild",
+    "/usr/bin/xcrun",
+]
 
 
 @dataclass(frozen=True)
@@ -139,6 +152,32 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Bundle identifier to grant in TCC.db. Repeatable. "
             "Values are added to the defaults (org.ghostvm.com.ghostvm.guest-tools / GhostTools)."
+        ),
+    )
+    ap.add_argument(
+        "--tcc-service",
+        action="append",
+        dest="tcc_services",
+        help=(
+            "TCC service to grant for path and bundle-id clients. Repeatable. "
+            "Values are added to the defaults (Accessibility, ScreenCapture, PostEvent)."
+        ),
+    )
+    ap.add_argument(
+        "--xcode-ui-testing",
+        action="store_true",
+        help=(
+            "Also seed common Xcode macOS UI-testing TCC clients, including "
+            "Xcode.app, Xcode Helper.app, xcodebuild, and xcrun candidates when present in the guest image."
+        ),
+    )
+    ap.add_argument(
+        "--xcode-app",
+        action="append",
+        dest="xcode_apps",
+        help=(
+            "Guest path to an Xcode.app bundle used for --xcode-ui-testing. Repeatable. "
+            "Default: /Applications/Xcode.app."
         ),
     )
     return ap.parse_args()
@@ -406,6 +445,95 @@ def write_safari_js_from_apple_events_preference(
     return written, warnings
 
 
+def mounted_path_for_guest_path(data_root: Path, guest_path: str) -> Path:
+    if not guest_path.startswith("/"):
+        raise SeedError(f"guest paths must be absolute: {guest_path}")
+    return data_root / guest_path.lstrip("/")
+
+
+def read_bundle_info(bundle_path: Path) -> dict[str, object]:
+    info_path = bundle_path / "Contents" / "Info.plist"
+    if not info_path.exists():
+        return {}
+    try:
+        with info_path.open("rb") as fh:
+            payload = plistlib.load(fh)
+    except Exception as exc:  # plistlib.InvalidFileException is not present on older Python.
+        raise SeedError(f"Failed to read bundle Info.plist at {info_path}: {exc}") from exc
+    return payload if isinstance(payload, dict) else {}
+
+
+def bundle_identifier(bundle_path: Path) -> str | None:
+    value = read_bundle_info(bundle_path).get("CFBundleIdentifier")
+    return str(value) if value else None
+
+
+def bundle_executable_guest_path(bundle_path: Path, guest_bundle_path: str) -> str | None:
+    value = read_bundle_info(bundle_path).get("CFBundleExecutable")
+    if not value:
+        return None
+    exec_path = bundle_path / "Contents" / "MacOS" / str(value)
+    if not exec_path.exists():
+        return None
+    return f"{guest_bundle_path.rstrip('/')}/Contents/MacOS/{value}"
+
+
+def guest_path_for_mounted_path(data_root: Path, mounted_path: Path) -> str:
+    try:
+        relative = mounted_path.relative_to(data_root)
+    except ValueError as exc:
+        raise SeedError(f"mounted path is outside data root: {mounted_path}") from exc
+    return f"/{relative.as_posix()}"
+
+
+def xcode_app_bundles(mounted_xcode_app: Path) -> list[Path]:
+    bundles = [mounted_xcode_app]
+    for candidate in sorted(mounted_xcode_app.rglob("*.app")):
+        if candidate != mounted_xcode_app and candidate.is_dir():
+            bundles.append(candidate)
+    return bundles
+
+
+def xcode_ui_testing_tcc_candidates(
+    data_root: Path, xcode_apps: list[str]
+) -> tuple[list[str], list[str], list[str]]:
+    """Return (path clients, bundle-id clients, warnings) for macOS Xcode UI tests."""
+
+    path_clients: list[str] = []
+    bundle_ids: list[str] = []
+    warnings: list[str] = []
+
+    for guest_xcode_app in xcode_apps:
+        mounted_xcode_app = mounted_path_for_guest_path(data_root, guest_xcode_app)
+        if not mounted_xcode_app.exists():
+            warnings.append(f"Xcode.app not found for --xcode-ui-testing: {guest_xcode_app}")
+            continue
+
+        for bundle_path in xcode_app_bundles(mounted_xcode_app):
+            guest_bundle_path = guest_path_for_mounted_path(data_root, bundle_path)
+            bundle_id = bundle_identifier(bundle_path)
+            if bundle_id:
+                if bundle_id.startswith("com.apple.dt.Xcode"):
+                    bundle_ids.append(bundle_id)
+            elif bundle_path == mounted_xcode_app:
+                warnings.append(f"Could not read CFBundleIdentifier for {guest_xcode_app}")
+
+            bundle_exec = bundle_executable_guest_path(bundle_path, guest_bundle_path)
+            if bundle_exec and (bundle_path == mounted_xcode_app or bundle_id in bundle_ids):
+                path_clients.append(bundle_exec)
+
+        for relative_path in XCODE_EXECUTABLE_RELATIVE_PATHS:
+            mounted_exec = mounted_xcode_app / relative_path
+            if mounted_exec.exists():
+                path_clients.append(f"{guest_xcode_app.rstrip('/')}/{relative_path}")
+
+    # /usr/bin lives on the sealed system volume, not under the mounted Data
+    # volume we patch offline. Seed the Xcode command-line stubs unconditionally.
+    path_clients.extend(XCODE_STUB_TCC_CLIENTS)
+
+    return merge_unique([], path_clients), merge_unique([], bundle_ids), warnings
+
+
 def existing_user_db_paths(
     data_root: Path, explicit_users: list[str] | None
 ) -> tuple[list[Path], list[str]]:
@@ -542,10 +670,15 @@ def upsert_tcc_grants(db_path: Path, grants: list[TCCGrant]) -> int:
         return len(grants)
 
 
-def build_default_tcc_grants(clients: list[str], receivers: list[str]) -> list[TCCGrant]:
+def build_default_tcc_grants(
+    clients: list[str],
+    receivers: list[str],
+    services: list[str] | None = None,
+) -> list[TCCGrant]:
+    services = services or DEFAULT_TCC_SERVICES
     grants: list[TCCGrant] = []
     for client in clients:
-        for service in DEFAULT_TCC_SERVICES:
+        for service in services:
             grants.append(TCCGrant(service=service, client=client, client_type=1))
         for receiver in receivers:
             grants.append(
@@ -559,10 +692,15 @@ def build_default_tcc_grants(clients: list[str], receivers: list[str]) -> list[T
     return grants
 
 
-def build_bundle_id_tcc_grants(bundle_ids: list[str], receivers: list[str]) -> list[TCCGrant]:
+def build_bundle_id_tcc_grants(
+    bundle_ids: list[str],
+    receivers: list[str],
+    services: list[str] | None = None,
+) -> list[TCCGrant]:
+    services = services or DEFAULT_TCC_SERVICES
     grants: list[TCCGrant] = []
     for bundle_id in bundle_ids:
-        for service in DEFAULT_TCC_SERVICES:
+        for service in services:
             grants.append(TCCGrant(service=service, client=bundle_id, client_type=0))
         for receiver in receivers:
             grants.append(
@@ -587,9 +725,13 @@ def apply_seed(
     appletargets: list[str],
     tcc_clients: list[str],
     tcc_bundle_ids: list[str],
+    tcc_services: list[str] | None = None,
+    xcode_ui_testing: bool = False,
+    xcode_apps: list[str] | None = None,
 ) -> int:
     say(f"[seed] data_root={data_root}")
     warnings: list[str] = []
+    active_tcc_services = merge_unique(DEFAULT_TCC_SERVICES.copy(), tcc_services or [])
 
     if not skip_local_network:
         prefs_path = write_local_network_defaults(data_root, cidrs)
@@ -611,9 +753,26 @@ def apply_seed(
                 f"System TCC.db not found at {system_db}. Is this the guest data volume root?"
             )
 
+        if xcode_ui_testing:
+            active_tcc_services = merge_unique(
+                active_tcc_services, DEFAULT_XCODE_TCC_SERVICES.copy()
+            )
+            xcode_tcc_clients, xcode_tcc_bundle_ids, xcode_warnings = (
+                xcode_ui_testing_tcc_candidates(data_root, xcode_apps or DEFAULT_XCODE_APP_PATHS)
+            )
+            tcc_clients = merge_unique(tcc_clients, xcode_tcc_clients)
+            tcc_bundle_ids = merge_unique(tcc_bundle_ids, xcode_tcc_bundle_ids)
+            warnings.extend(xcode_warnings)
+            if xcode_tcc_clients or xcode_tcc_bundle_ids:
+                say("[seed] added Xcode UI-testing TCC candidates")
+                for client in xcode_tcc_clients:
+                    say(f"[seed]   tcc-client={client}")
+                for bundle_id in xcode_tcc_bundle_ids:
+                    say(f"[seed]   tcc-bundle-id={bundle_id}")
+
         grants = [
-            *build_default_tcc_grants(tcc_clients, appletargets),
-            *build_bundle_id_tcc_grants(tcc_bundle_ids, appletargets),
+            *build_default_tcc_grants(tcc_clients, appletargets, active_tcc_services),
+            *build_bundle_id_tcc_grants(tcc_bundle_ids, appletargets, active_tcc_services),
         ]
         patched = upsert_tcc_grants(system_db, grants)
         say(f"[seed] patched system TCC.db: {system_db} ({patched} grants)")
@@ -644,6 +803,14 @@ def main() -> int:
     tcc_bundle_ids = merge_unique(
         DEFAULT_TCC_BUNDLE_IDS.copy(), [str(item) for item in (ns.tcc_bundle_ids or [])]
     )
+    tcc_services = merge_unique(
+        DEFAULT_TCC_SERVICES.copy(), [str(item) for item in (ns.tcc_services or [])]
+    )
+
+    xcode_apps = merge_unique(
+        DEFAULT_XCODE_APP_PATHS.copy(), [str(item) for item in (ns.xcode_apps or [])]
+    )
+    xcode_ui_testing = bool(ns.xcode_ui_testing or ns.xcode_apps)
 
     if ns.mounted_root:
         data_root = resolve_existing_path(ns.mounted_root)
@@ -657,6 +824,9 @@ def main() -> int:
             appletargets=appletargets,
             tcc_clients=tcc_clients,
             tcc_bundle_ids=tcc_bundle_ids,
+            tcc_services=tcc_services,
+            xcode_ui_testing=xcode_ui_testing,
+            xcode_apps=xcode_apps,
         )
 
     bundle = resolve_existing_path(ns.bundle)
@@ -671,6 +841,9 @@ def main() -> int:
             appletargets=appletargets,
             tcc_clients=tcc_clients,
             tcc_bundle_ids=tcc_bundle_ids,
+            tcc_services=tcc_services,
+            xcode_ui_testing=xcode_ui_testing,
+            xcode_apps=xcode_apps,
         )
 
 

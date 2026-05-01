@@ -271,9 +271,22 @@ fi
 
 say "[runner] socket=$sock_path"
 
-# Health check.
-if ! vmctl remote --socket "$sock_path" health >/dev/null 2>&1; then
-    action_required "GhostTools /health failed. Ensure GhostTools is installed + running in the guest. See references/troubleshooting.md"
+# Health check. The Host API socket can appear before the logged-in user's
+# GhostTools instance is ready, especially immediately after snapshot revert.
+say "[runner] waiting for GhostTools /health"
+health_ok=0
+last_health_err=""
+deadline=$((SECONDS + 240))
+while [[ $SECONDS -lt $deadline ]]; do
+    if vmctl remote --socket "$sock_path" health >/dev/null 2>&1; then
+        health_ok=1
+        break
+    fi
+    last_health_err="$(vmctl remote --socket "$sock_path" health 2>&1 || true)"
+    sleep 2
+done
+if [[ $health_ok -ne 1 ]]; then
+    action_required "GhostTools /health failed after waiting for guest login. Ensure GhostTools is installed + running in the guest. Last error:\n$last_health_err\nSee references/troubleshooting.md"
 fi
 
 # Validate remote exec is ready (can transiently fail right after /health).

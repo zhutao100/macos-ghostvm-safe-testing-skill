@@ -4,12 +4,15 @@ set -euo pipefail
 usage() {
     cat <<'USAGE'
 Usage:
-  ghostvm_guest_ready.sh --vm <Name> [--bundle /path/to/<Name>.GhostVM] [--root ~/VMs] [--require-rosetta]
+  ghostvm_guest_ready.sh --vm <Name> [--bundle /path/to/<Name>.GhostVM] [--root ~/VMs] [--require-rosetta] [--require-xcode-ui-testing]
 
 Checks (inside the guest, via Host API):
   - GhostTools /health
   - Xcode Command Line Tools present (xcode-select -p)
   - (optional) Rosetta present (pkgutil receipt) when --require-rosetta is set
+  - (optional) Xcode UI testing readiness when --require-xcode-ui-testing is set:
+    xcodebuild usable, Automation Mode does not require user authentication,
+    and DevToolsSecurity is enabled.
 
 Exit codes:
   0  guest is "dev-ready" for common CLI workflows (CLT present; rosetta optional unless required)
@@ -34,6 +37,7 @@ VM_NAME=""
 BUNDLE_PATH=""
 ROOT_DIR="$HOME/VMs"
 REQUIRE_ROSETTA=0
+REQUIRE_XCODE_UI_TESTING=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -51,6 +55,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --require-rosetta)
             REQUIRE_ROSETTA=1
+            shift
+            ;;
+        --require-xcode-ui-testing)
+            REQUIRE_XCODE_UI_TESTING=1
             shift
             ;;
         -h | --help)
@@ -153,6 +161,40 @@ if [[ "$arch" == "arm64" ]]; then
     fi
 else
     say "[SKIP] Rosetta check (guest arch is not arm64)"
+fi
+
+if [[ $REQUIRE_XCODE_UI_TESTING -eq 1 ]]; then
+    if python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/usr/bin/xcodebuild -version >/dev/null 2>&1" >/dev/null 2>&1; then
+        check_ok "xcodebuild is usable"
+    else
+        check_warn "xcodebuild is not usable"
+        say "  Fix: install/select Xcode, then run scripts/ghostvm_prepare_headless_automation.sh --xcode-ui-testing"
+    fi
+
+    automation_status="$(python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "command -v automationmodetool >/dev/null 2>&1 && automationmodetool 2>&1" 2>/dev/null || true)"
+    if [[ "$automation_status" == *"DOES NOT REQUIRE"* ]]; then
+        check_ok "Automation Mode does not require user authentication"
+    else
+        check_warn "Automation Mode still requires user authentication or automationmodetool is unavailable"
+        if [[ -n "$automation_status" ]]; then
+            say "  automationmodetool output:"
+            printf '%s
+' "$automation_status" | sed 's/^/    /' >&2
+        fi
+        say "  Fix: run scripts/ghostvm_prepare_xcode_ui_testing.sh, optionally with GHOSTVM_GUEST_SUDO_PASSWORD for disposable guests, or inside the guest run:"
+        say "    sudo /Users/Shared/ghostvm-safe-testing/ghostvm_guest_bootstrap_xcode_ui_testing.sh"
+    fi
+
+    devtools_status="$(python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/usr/sbin/DevToolsSecurity -status 2>&1" 2>/dev/null || true)"
+    if [[ "$devtools_status" == *"enabled"* || "$devtools_status" == *"Enabled"* ]]; then
+        check_ok "DevToolsSecurity is enabled"
+    else
+        check_warn "DevToolsSecurity is not enabled"
+        if [[ -n "$devtools_status" ]]; then
+            say "  DevToolsSecurity output: $devtools_status"
+        fi
+        say "  Fix: sudo /usr/sbin/DevToolsSecurity -enable"
+    fi
 fi
 
 if [[ $missing -eq 0 ]]; then

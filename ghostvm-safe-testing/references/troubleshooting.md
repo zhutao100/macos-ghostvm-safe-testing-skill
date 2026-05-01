@@ -126,6 +126,64 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
   --user agent   --user root
 ```
 
+
+## Xcode/XCTest UI testing still prompts
+
+### “XCTest is trying to Enable UI Automation” or timeout while enabling automation mode
+
+This is the XCTest Automation Mode authentication gate. It is not fixed by editing `TCC.db` alone.
+
+Preferred disposable-VM fix:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_xcode_ui_testing.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --user agent
+```
+
+If the helper cannot run sudo noninteractively, either pass the known disposable-guest password for that host invocation only:
+
+```bash
+GHOSTVM_GUEST_SUDO_PASSWORD='<guest-password>' \
+  ghostvm-safe-testing/scripts/ghostvm_prepare_xcode_ui_testing.sh \
+    --vm <Name> \
+    --base-snapshot clean-state \
+    --user agent
+```
+
+or boot the disposable guest once and run:
+
+```bash
+sudo /Users/Shared/ghostvm-safe-testing/ghostvm_guest_bootstrap_xcode_ui_testing.sh \
+  --xcode-app /Applications/Xcode.app \
+  --user agent
+```
+
+Then stop the VM and create the prepared snapshot. Do not persist guest passwords in repo files.
+
+### Accessibility prompt for Xcode Helper
+
+If a UI test still prompts for Accessibility, verify that the actual requester identity matches what was seeded. The common nested helper is:
+
+```text
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Xcode/Agents/Xcode Helper.app
+```
+
+Use a non-default Xcode path when needed:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_xcode_ui_testing.sh \
+  --vm <Name> \
+  --xcode-app /Applications/Xcode-16.4.app
+```
+
+Verify readiness with:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name> --require-xcode-ui-testing
+```
+
 ## Host API / GhostTools issues
 
 ### Host API socket not found

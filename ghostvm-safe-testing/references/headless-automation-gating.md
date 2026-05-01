@@ -1,10 +1,11 @@
-# Headless automation gating in a GhostVM guest (TCC + Local Network)
+# Headless automation gating in a GhostVM guest (TCC + Xcode UI testing + Local Network)
 
 This note documents the **pragmatic preparation path** for disposable GhostVM guests that must run unattended automation without stopping on first-use privacy prompts.
 
 The relevant categories are:
 
 - **Classic TCC services** used by UI / AppleScript automation, such as AppleEvents, Accessibility, Screen Recording, and synthetic input.
+- **Xcode/XCTest UI testing gates**, especially `Xcode Helper.app` Accessibility and the separate XCTest Automation Mode authentication gate.
 - **Local Network privacy**, which is a different subsystem and does not behave like classic TCC.
 
 For this skill, the default operating model is:
@@ -20,6 +21,7 @@ That matches GhostVM’s coarse-grained snapshot model and keeps the resulting s
 | Problem | Preferred path for disposable GhostVM guests | Why |
 | --- | --- | --- |
 | Baseline AppleScript / UI automation permissions | Offline-seed `TCC.db` while the VM is stopped | Deterministic, snapshot-friendly, and avoids guest-live setup friction |
+| Xcode/XCTest macOS UI tests | Use `--xcode-ui-testing`: offline-seed Xcode-related TCC clients, then run a guest-root bootstrap for Automation Mode / Developer Tools / Xcode first launch | The XCTest Automation Mode auth gate is not solved by TCC rows alone |
 | Baseline Local Network access for known automation subnets | Offline-seed `com.apple.network.local-network` CIDR defaults while the VM is stopped | Avoids per-app prompts for those ranges |
 | Safari DOM automation with AppleScript `do JavaScript` | Offline-seed Safari's `AllowJavaScriptFromAppleEvents` preference for guest users | TCC AppleEvents grants alone do not enable Safari's app-level JavaScript gate |
 | Extra AppleEvents receivers or sender binaries | Extend the offline seed (`--appleevent-target`, `--tcc-client`) | Keeps prep reproducible |
@@ -28,7 +30,72 @@ That matches GhostVM’s coarse-grained snapshot model and keeps the resulting s
 
 ---
 
-## 2) Local Network privacy
+## 2) Xcode/XCTest UI testing prompts
+
+### What the prompt represents
+
+macOS UI tests launched by Xcode/XCTest interact with the system through Accessibility-style UI automation. In practice, disposable VM preparation has to cover two independent gates:
+
+1. **TCC / Accessibility identity:** the relevant Xcode components need permission. The most important nested app is typically:
+
+   ```text
+   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Xcode/Agents/Xcode Helper.app
+   ```
+
+2. **XCTest Automation Mode:** modern XCTest can stop at an authentication prompt while enabling UI Automation. This is controlled by `automationmodetool`, not by the classic `TCC.db` rows.
+
+### Disposable-VM solution
+
+Use a dedicated prepared snapshot:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --snapshot xcode-ui-ready \
+  --xcode-ui-testing \
+  --user agent
+```
+
+That path does both halves:
+
+- **Offline seed while stopped:** adds common Xcode UI-testing TCC candidates when they exist in the guest image:
+  - `Xcode.app` bundle id and executable
+  - nested `Xcode Helper.app` bundle id and executable
+  - Xcode, `xcodebuild`, and `xcrun` candidates
+  - Xcode-specific `kTCCServiceDeveloperTool` and `kTCCServiceListenEvent` services
+- **Guest bootstrap after boot:** runs `ghostvm_guest_bootstrap_xcode_ui_testing.sh` as root to:
+  - select the requested Xcode developer directory
+  - accept the Xcode license and run first-launch setup
+  - enable `DevToolsSecurity`
+  - add selected users to `_developer`
+  - run `automationmodetool enable-automationmode-without-authentication`
+
+The guest bootstrap uses noninteractive sudo from the Host API path. For fully unattended snapshot preparation, configure temporary passwordless sudo for the disposable automation user. For disposable guests with a known password, set `GHOSTVM_GUEST_SUDO_PASSWORD` for that host invocation only:
+
+```bash
+GHOSTVM_GUEST_SUDO_PASSWORD='<guest-password>' \
+  ghostvm-safe-testing/scripts/ghostvm_prepare_xcode_ui_testing.sh \
+    --vm <Name> \
+    --base-snapshot clean-state \
+    --user agent
+```
+
+If neither is available, run the bootstrap script manually once inside the guest with `sudo` and then snapshot the result. Do not persist guest passwords in repo files.
+
+Verify the prepared state with:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name> --require-xcode-ui-testing
+```
+
+### What not to assume
+
+Do not assume that adding `Xcode Helper.app` to Accessibility alone fixes the whole class. If the run fails with messages like “Timed out while enabling automation mode” or “XCTest is trying to Enable UI Automation,” run or verify the Automation Mode bootstrap.
+
+---
+
+## 3) Local Network privacy
 
 ### What matters operationally
 
@@ -74,7 +141,7 @@ Do **not** try to solve Local Network privacy by editing `TCC.db`; it is the wro
 
 ---
 
-## 3) Classic TCC services for automation
+## 4) Classic TCC services for automation
 
 ### Default seeded baseline
 
@@ -97,6 +164,11 @@ for these services:
 - `kTCCServiceScreenCapture`
 - `kTCCServicePostEvent`
 - `kTCCServiceAppleEvents`
+
+When `--xcode-ui-testing` is enabled, the helper also adds:
+
+- `kTCCServiceDeveloperTool`
+- `kTCCServiceListenEvent`
 
 and these default AppleEvents receivers:
 
@@ -124,6 +196,12 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
   --vm <Name> \
   --snapshot automation-ready \
   --tcc-client /usr/local/bin/cliclick
+
+# extra service found from attribution
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --tcc-service kTCCServiceListenEvent
 ```
 
 If a permission is user-specific and you do not want auto-detection, narrow the patch to a specific guest account:
@@ -137,7 +215,7 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
 
 ---
 
-## 4) Recommended workflow
+## 5) Recommended workflow
 
 ### Pure offline preparation
 
@@ -159,6 +237,15 @@ That does:
 5. detach the image
 6. create `automation-ready`
 
+For Xcode UI testing, use the dedicated option:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_xcode_ui_testing.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --user agent
+```
+
 ### Offline preparation plus priming
 
 Use this only when you intentionally need a prompt that is outside the seeded baseline:
@@ -174,7 +261,25 @@ The priming step boots the guest, exercises the relevant operation, and expects 
 
 ---
 
-## 5) Why the skill defaults to offline seeding
+## 6) More useful disposable-VM headless setups
+
+These setups are valuable because they move interactive gating into a golden snapshot instead of letting it interrupt agent runs.
+
+| Setup | Why it helps | Where this skill handles it |
+| --- | --- | --- |
+| Auto-login for the automation user | GhostTools and GUI-session automation need a logged-in user session | Human VM provisioning; checked indirectly by `/health` |
+| GhostTools as a Login Item | Provides Host API `/health` and `exec` after boot | Human VM provisioning; doctor/ready scripts diagnose failures |
+| Xcode license + first launch completed | Avoids first-use dialogs or command-line setup stalls | `ghostvm_guest_bootstrap_xcode_ui_testing.sh` |
+| `automationmodetool` configured | Avoids XCTest Automation Mode authentication prompt | `--xcode-ui-testing` guest bootstrap |
+| `DevToolsSecurity -enable` + `_developer` membership | Avoids developer-tool authorization prompts for admin/developer users | `--xcode-ui-testing` guest bootstrap |
+| Safari JavaScript from Apple Events enabled | Allows Safari DOM automation through Apple Events | offline Safari preference seed |
+| Local Network CIDR exemptions | Avoids local-network prompts for lab/private subnets | offline Local Network preference seed |
+| Purpose-built snapshots (`clean-state`, `automation-ready`, `xcode-ui-ready`) | Gives deterministic rollback and separates consent profiles | `ghostvm_prepare_headless_automation.sh` |
+| No disk encryption in disposable guests | Makes offline disk mutation viable | VM design assumption; do not copy to real hosts |
+
+---
+
+## 7) Why the skill defaults to offline seeding
 
 For disposable GhostVM images, offline mutation is the most reliable boundary because:
 

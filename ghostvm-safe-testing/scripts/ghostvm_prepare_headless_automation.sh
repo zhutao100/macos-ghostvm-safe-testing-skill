@@ -13,6 +13,10 @@ Usage:
     [--appleevent-target <bundle-id> ...] \
     [--tcc-client </abs/path> ...] \
     [--tcc-bundle-id <bundle-id> ...] \
+    [--tcc-service <service> ...] \
+    [--xcode-ui-testing] \
+    [--xcode-app /Applications/Xcode.app] \
+    [--sudo-password-env GHOSTVM_GUEST_SUDO_PASSWORD] \
     [--skip-local-network] \
     [--skip-tcc] \
     [--skip-safari-js-apple-events] \
@@ -30,6 +34,13 @@ Prepares a disposable GhostVM guest for unattended automation by combining:
       System Events / Finder / Safari / Mail (default unless --skip-tcc)
     - Safari's Allow JavaScript from Apple Events preference for detected or
       selected guest users (default unless --skip-safari-js-apple-events)
+    - with --xcode-ui-testing: common XCTest/Xcode UI-testing TCC clients,
+      including Xcode.app, Xcode Helper.app, xcodebuild, and xcrun candidates
+
+  - noninteractive in-guest bootstrap after boot when --xcode-ui-testing is used
+    - accepts Xcode license and runs first-launch setup where possible
+    - enables DevToolsSecurity and adds selected users to _developer
+    - runs automationmodetool to suppress the XCTest Automation Mode auth prompt
 
   - optional interactive priming after boot
     - --prime-automation: triggers AppleEvents prompt in the guest UI
@@ -55,6 +66,22 @@ Examples:
     --snapshot automation-ready \
     --appleevent-target com.apple.TextEdit \
     --tcc-client /usr/local/bin/cliclick
+
+  # Prepare for Xcode/XCTest macOS UI automation in a disposable VM.
+  ghostvm_prepare_headless_automation.sh \
+    --vm Dev \
+    --base-snapshot clean-state \
+    --snapshot xcode-ui-ready \
+    --xcode-ui-testing \
+    --user agent
+
+  # Same, but use a known disposable-guest sudo password from the host environment.
+  GHOSTVM_GUEST_SUDO_PASSWORD=admin ghostvm_prepare_headless_automation.sh \
+    --vm Dev \
+    --base-snapshot clean-state \
+    --snapshot xcode-ui-ready \
+    --xcode-ui-testing \
+    --user admin
 
   # Boot after seeding and prime any remaining prompts manually.
   ghostvm_prepare_headless_automation.sh \
@@ -93,12 +120,16 @@ PRIME_LOCAL_NETWORK=0
 SKIP_LOCAL_NETWORK=0
 SKIP_TCC=0
 SKIP_SAFARI_JS_APPLE_EVENTS=0
+XCODE_UI_TESTING=0
+XCODE_APP="/Applications/Xcode.app"
+SUDO_PASSWORD_ENV="GHOSTVM_GUEST_SUDO_PASSWORD"
 
 CIDRS=()
 USERS=()
 APPLEEVENT_TARGETS=()
 TCC_CLIENTS=()
 TCC_BUNDLE_IDS=()
+TCC_SERVICES=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -142,6 +173,23 @@ while [[ $# -gt 0 ]]; do
             TCC_BUNDLE_IDS+=("$2")
             shift 2
             ;;
+        --tcc-service)
+            TCC_SERVICES+=("$2")
+            shift 2
+            ;;
+        --xcode-ui-testing)
+            XCODE_UI_TESTING=1
+            shift
+            ;;
+        --xcode-app)
+            XCODE_UI_TESTING=1
+            XCODE_APP="$2"
+            shift 2
+            ;;
+        --sudo-password-env)
+            SUDO_PASSWORD_ENV="$2"
+            shift 2
+            ;;
         --skip-local-network)
             SKIP_LOCAL_NETWORK=1
             shift
@@ -175,6 +223,10 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if ! [[ "$SUDO_PASSWORD_ENV" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    action_required "--sudo-password-env must be a shell variable name, got: $SUDO_PASSWORD_ENV"
+fi
 
 if [[ -z "$BUNDLE_PATH" ]]; then
     [[ -n "$VM_NAME" ]] || action_required "Missing --vm <Name> (or pass --bundle)"
@@ -227,7 +279,8 @@ fi
 SEED_PY="$(dirname "$0")/ghostvm_guest_privacy_seed.py"
 EXEC_SH="$(dirname "$0")/ghostvm_exec.sh"
 REMOTE_EXEC_PY="$(dirname "$0")/ghostvm_remote_exec.py"
-for required in "$SEED_PY" "$EXEC_SH" "$REMOTE_EXEC_PY"; do
+BOOTSTRAP_XCODE_UI_SH="$(dirname "$0")/ghostvm_guest_bootstrap_xcode_ui_testing.sh"
+for required in "$SEED_PY" "$EXEC_SH" "$REMOTE_EXEC_PY" "$BOOTSTRAP_XCODE_UI_SH"; do
     [[ -x "$required" || -f "$required" ]] || action_required "Missing required helper: $required"
 done
 
@@ -238,6 +291,13 @@ say "[prep] bundle=$BUNDLE_PATH"
 [[ $SKIP_LOCAL_NETWORK -eq 1 ]] && say "[prep] local_network=skip"
 [[ $SKIP_TCC -eq 1 ]] && say "[prep] tcc=skip"
 [[ $SKIP_SAFARI_JS_APPLE_EVENTS -eq 1 ]] && say "[prep] safari_js_apple_events=skip"
+if [[ $XCODE_UI_TESTING -eq 1 ]]; then
+    say "[prep] xcode_ui_testing=enable"
+    say "[prep] xcode_app=$XCODE_APP"
+    if [[ -n "${!SUDO_PASSWORD_ENV:-}" ]]; then
+        say "[prep] guest_sudo_password_env=$SUDO_PASSWORD_ENV"
+    fi
+fi
 
 PID_FILE="$BUNDLE_PATH/vmctl.pid"
 vm_pid_alive() {
@@ -380,11 +440,17 @@ done
 for bundle_id in "${TCC_BUNDLE_IDS[@]}"; do
     seed_args+=(--tcc-bundle-id "$bundle_id")
 done
+for service in "${TCC_SERVICES[@]}"; do
+    seed_args+=(--tcc-service "$service")
+done
+if [[ $XCODE_UI_TESTING -eq 1 ]]; then
+    seed_args+=(--xcode-ui-testing --xcode-app "$XCODE_APP")
+fi
 
 say "[prep] applying offline guest-disk seed"
 "${seed_args[@]}"
 
-if [[ $PRIME_AUTOMATION -eq 0 && $PRIME_LOCAL_NETWORK -eq 0 ]]; then
+if [[ $PRIME_AUTOMATION -eq 0 && $PRIME_LOCAL_NETWORK -eq 0 && $XCODE_UI_TESTING -eq 0 ]]; then
     if [[ $KEEP_RUNNING -eq 1 ]]; then
         say "[prep] note: --keep-running has no effect because no priming step booted the guest"
     fi
@@ -440,8 +506,20 @@ if [[ -z "$sock_path" ]]; then
 fi
 
 say "[prep] socket=$sock_path"
-if ! vmctl remote --socket "$sock_path" health >/dev/null 2>&1; then
-    action_required "GhostTools /health failed. Ensure GhostTools is installed + running in the guest. See references/troubleshooting.md"
+say "[prep] waiting for GhostTools /health"
+health_ok=0
+last_health_err=""
+deadline=$((SECONDS + 240))
+while [[ $SECONDS -lt $deadline ]]; do
+    if vmctl remote --socket "$sock_path" health >/dev/null 2>&1; then
+        health_ok=1
+        break
+    fi
+    last_health_err="$(vmctl remote --socket "$sock_path" health 2>&1 || true)"
+    sleep 2
+done
+if [[ $health_ok -ne 1 ]]; then
+    action_required "GhostTools /health failed after waiting for guest login. Ensure GhostTools is installed + running in the guest. Last error:\n$last_health_err\nSee references/troubleshooting.md"
 fi
 
 deadline=$((SECONDS + 30))
@@ -454,6 +532,58 @@ done
 if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/echo ok >/dev/null 2>&1; then
     action_required "Guest exec is not responding yet (even though /health is OK). Wait for login + GhostTools initialization, then retry. See references/remote-exec.md"
 fi
+
+shell_quote() {
+    printf '%q' "$1"
+}
+
+run_xcode_ui_testing_bootstrap() {
+    say "[prep] running Xcode UI-testing guest bootstrap (Automation Mode + Developer Tools)"
+    say "[prep] this requires noninteractive sudo inside the disposable guest, or a prior manual bootstrap"
+
+    local bootstrap_b64
+    bootstrap_b64="$(/usr/bin/base64 <"$BOOTSTRAP_XCODE_UI_SH" | tr -d '\n')"
+
+    local sudo_password_b64=""
+    if [[ -n "${!SUDO_PASSWORD_ENV:-}" ]]; then
+        sudo_password_b64="$(printf '%s' "${!SUDO_PASSWORD_ENV}" | /usr/bin/base64 | tr -d '\n')"
+    fi
+
+    local xcode_app_q
+    xcode_app_q="$(shell_quote "$XCODE_APP")"
+
+    local user_args=""
+    local user
+    for user in "${USERS[@]}"; do
+        user_args+=" --user $(shell_quote "$user")"
+    done
+
+    local remote_cmd
+    remote_cmd="$(
+        cat <<EOF
+set -euo pipefail
+script_dir=/Users/Shared/ghostvm-safe-testing
+script="\$script_dir/ghostvm_guest_bootstrap_xcode_ui_testing.sh"
+mkdir -p "\$script_dir"
+if ! printf '%s' '$bootstrap_b64' | /usr/bin/base64 -D >"\$script" 2>/dev/null; then
+  printf '%s' '$bootstrap_b64' | /usr/bin/base64 --decode >"\$script"
+fi
+chmod +x "\$script"
+if [[ -n '$sudo_password_b64' ]]; then
+  if ! sudo_password=\$(printf '%s' '$sudo_password_b64' | /usr/bin/base64 -D 2>/dev/null); then
+    sudo_password=\$(printf '%s' '$sudo_password_b64' | /usr/bin/base64 --decode)
+  fi
+  printf '%s\n' "\$sudo_password" | /usr/bin/sudo -S -p '' "\$script" --xcode-app $xcode_app_q$user_args
+else
+  /usr/bin/sudo -n "\$script" --xcode-app $xcode_app_q$user_args
+fi
+EOF
+    )"
+
+    if ! "$EXEC_SH" --socket "$sock_path" --timeout 1800 --argv /bin/zsh -lc "$remote_cmd"; then
+        action_required "Xcode UI-testing bootstrap failed. This setup requires noninteractive sudo in the disposable guest. Set $SUDO_PASSWORD_ENV to the disposable guest user's sudo password, run the VM once and execute 'sudo /Users/Shared/ghostvm-safe-testing/ghostvm_guest_bootstrap_xcode_ui_testing.sh --xcode-app $XCODE_APP' inside the guest, or configure temporary passwordless sudo before rerunning."
+    fi
+}
 
 prime_automation_prompts() {
     say "[prep] priming Automation (AppleEvents) prompt via osascript → System Events"
@@ -472,6 +602,10 @@ prime_local_network_prompt() {
     "$EXEC_SH" --socket "$sock_path" --timeout 60 --argv /usr/bin/dns-sd -B _services._dns-sd._udp local. >/dev/null 2>&1
     set -e
 }
+
+if [[ $XCODE_UI_TESTING -eq 1 ]]; then
+    run_xcode_ui_testing_bootstrap
+fi
 
 if [[ $PRIME_AUTOMATION -eq 1 ]]; then
     prime_automation_prompts

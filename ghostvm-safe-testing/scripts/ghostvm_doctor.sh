@@ -208,7 +208,7 @@ while [[ $SECONDS -lt $deadline ]]; do
         break
     fi
     last_exec_err="$exec_out"
-    sleep 1
+    sleep "${GHOSTVM_DOCTOR_RETRY_SLEEP:-1}"
 done
 
 if [[ -n "$last_exec_err" ]]; then

@@ -56,6 +56,34 @@ Many developer workflows assume CLT is installed (git/clang/make/xcrun, etc.).
 
 > Tip: if CLT is missing, some tools (like `git`) will trigger a GUI prompt, which is hostile to headless agent workflows.
 
+### Full Xcode for macOS UI tests
+
+Xcode/XCTest macOS UI tests need more than CLT. Bake these into a dedicated VM snapshot when the guest will run GUI tests:
+
+- Full Xcode installed under the path you will pass to `--xcode-app` (default: `/Applications/Xcode.app`).
+- `xcode-select` points at that Xcode developer directory.
+- Xcode license is accepted.
+- First-launch setup has completed.
+- Developer Tools security is enabled and the automation user belongs to `_developer`.
+- XCTest Automation Mode is configured to avoid per-run user authentication.
+
+For disposable GhostVM guests, prefer the skill helper:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_xcode_ui_testing.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --user agent
+```
+
+If the disposable guest has a known sudo password and no passwordless sudo policy, pass it through `GHOSTVM_GUEST_SUDO_PASSWORD` for that invocation only. Do not persist guest passwords in repo files.
+
+Then verify:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name> --require-xcode-ui-testing
+```
+
 ### Rosetta 2 (optional)
 
 Rosetta is only needed if you plan to run Intel-only tools/binaries.
@@ -97,8 +125,8 @@ Once the guest is stable:
 
 ---
 
-## 6) Headless automation gating (TCC + Local Network)
+## 6) Headless automation gating (TCC + Xcode UI testing + Local Network)
 
-If you intend to run unattended automation inside the guest (AppleScript/UI automation, local device discovery, etc.), bake the required consent state into a snapshot.
+If you intend to run unattended automation inside the guest (AppleScript/UI automation, Xcode/XCTest UI tests, local device discovery, etc.), bake the required consent state into a snapshot.
 
 See: `references/headless-automation-gating.md`

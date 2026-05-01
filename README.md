@@ -11,7 +11,7 @@ It is designed for **LLM agent tools** (Codex CLI, Claude Code, etc.) that need 
 5. Export artifacts (logs, patches) to a dedicated host output directory.
 6. Stop the VM (optional) and revert to a clean snapshot for the next run.
 
-It also includes a **disposable-VM preparation path** for guest automation that would otherwise block on **TCC** or **Local Network** first-use prompts.
+It also includes a **disposable-VM preparation path** for guest automation that would otherwise block on **TCC**, **Xcode/XCTest Automation Mode**, Developer Tools, or **Local Network** first-use prompts.
 
 ## Repo contents
 
@@ -21,8 +21,10 @@ It also includes a **disposable-VM preparation path** for guest automation that 
     - `install_vmctl_wrapper.sh` — put a `vmctl` wrapper on your `PATH` (recommended)
     - `ghostvm_doctor.sh` — sanity checks + actionable diagnostics
     - `ghostvm_configure_shares.py` — configure RO/RW shared folders by editing `config.json`
-    - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network + baseline TCC
-    - `ghostvm_prepare_headless_automation.sh` — build an `automation-ready` snapshot from a stopped guest image
+    - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network + baseline TCC, including Xcode UI-testing candidates
+    - `ghostvm_guest_bootstrap_xcode_ui_testing.sh` — in-guest root bootstrap for Xcode UI tests (Automation Mode, Developer Tools, first launch)
+    - `ghostvm_prepare_headless_automation.sh` — build an `automation-ready` or `xcode-ui-ready` snapshot from a stopped guest image
+    - `ghostvm_prepare_xcode_ui_testing.sh` — convenience wrapper for standard Xcode/XCTest UI-testing snapshot prep
     - `ghostvm_safe_test.sh` — the safe “revert → copy → run → export” loop
   - `references/` — deeper troubleshooting notes
 
@@ -131,11 +133,14 @@ If your VM guest is a fresh macOS install, run:
 
 ```bash
 ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name>
+
+# for snapshots intended to run Xcode/XCTest macOS UI tests
+ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name> --require-xcode-ui-testing
 ```
 
 See: `ghostvm-safe-testing/references/macos-dev-testing-ready.md`
 
-## Optional: prepare a disposable automation snapshot (recommended for AppleScript/UI automation or local-network workflows)
+## Optional: prepare a disposable automation snapshot (recommended for AppleScript/UI automation, Xcode UI tests, or local-network workflows)
 
 The pragmatic path for disposable VMs is:
 
@@ -143,9 +148,10 @@ The pragmatic path for disposable VMs is:
 2. Keep the VM stopped.
 3. Offline-seed the guest `disk.img` from the host:
    - Local Network CIDR exemptions
-   - baseline TCC rows for `/usr/bin/osascript` and `/usr/libexec/sshd-keygen-wrapper`
+   - baseline TCC rows for `/usr/bin/osascript`, `/usr/libexec/sshd-keygen-wrapper`, GhostTools, and optional Xcode UI-testing clients/services
    - Safari's **Allow JavaScript from Apple Events** preference for detected guest users
-4. Create a new snapshot, for example `automation-ready`.
+4. When `--xcode-ui-testing` is used, boot once and run a guest-side bootstrap for `automationmodetool`, Developer Tools, and Xcode first-launch setup.
+5. Create a new snapshot, for example `automation-ready` or `xcode-ui-ready`.
 
 ```bash
 ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
@@ -155,6 +161,38 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
 ```
 
 If the snapshot already exists, the helper replaces it (delete + recreate) so re-running the command is safe.
+
+For Xcode/XCTest macOS UI tests, prepare a dedicated snapshot:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --snapshot xcode-ui-ready \
+  --xcode-ui-testing \
+  --user agent
+```
+
+Equivalent wrapper:
+
+```bash
+ghostvm-safe-testing/scripts/ghostvm_prepare_xcode_ui_testing.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --user agent
+```
+
+The Xcode UI-testing path needs administrator privileges inside the disposable guest. The helper uses noninteractive sudo. Prefer temporary passwordless sudo for golden-image prep; for disposable guests with a known password, pass it through the host environment for that run only:
+
+```bash
+GHOSTVM_GUEST_SUDO_PASSWORD='<guest-password>' \
+  ghostvm-safe-testing/scripts/ghostvm_prepare_xcode_ui_testing.sh \
+    --vm <Name> \
+    --base-snapshot clean-state \
+    --user agent
+```
+
+If noninteractive sudo is unavailable, run `ghostvm_guest_bootstrap_xcode_ui_testing.sh` once inside the guest with `sudo`, then snapshot the prepared VM. Do not persist guest passwords in repo files.
 
 Useful extensions:
 
@@ -170,6 +208,19 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
   --vm <Name> \
   --snapshot automation-ready \
   --tcc-client /usr/local/bin/cliclick
+
+# include Xcode.app / Xcode Helper.app / xcodebuild / xcrun candidates and Automation Mode setup
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot xcode-ui-ready \
+  --xcode-ui-testing \
+  --xcode-app /Applications/Xcode.app
+
+# add an extra TCC service when attribution shows a new gate
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --snapshot automation-ready \
+  --tcc-service kTCCServiceListenEvent
 
 # leave Safari's JavaScript-from-Apple-Events setting unchanged
 ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
