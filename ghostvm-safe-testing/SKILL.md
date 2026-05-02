@@ -204,6 +204,11 @@ Keep these true unless the user explicitly opts out:
 4. **VM state is reset via snapshot revert before each run.**
 5. **Automation/TCC, Automation Mode, Developer Tools, and Local Network state are baked into disposable snapshots, not granted ad hoc during agent runs.**
 
+The safe runner validates the read-only input share from inside the guest before
+copying it. For extra defense when using disposable staged inputs, remove host
+write bits on that staging directory after syncing it and before starting the VM
+loop.
+
 ## Important behavior notes
 
 ### Xcode/XCTest UI testing has two gates
@@ -272,3 +277,4 @@ The safe runner uses `scripts/ghostvm_exec.sh` (Host API + timeout) for the long
 - If the offline prep helper cannot identify the guest data volume: mount the image manually and use `scripts/ghostvm_guest_privacy_seed.py --mounted-root ...`.
 - If the Host API socket exists but `/health` fails: ensure GhostTools is installed + running in the guest.
 - If `/health` succeeds but `exec` fails: see `references/remote-exec.md`.
+- If the runner reports the RO share as writable: confirm `config.json` has `readOnly: true`, remove host write bits from disposable staged inputs if practical, and rerun once to rule out immediate post-mount status races.

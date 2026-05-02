@@ -39,6 +39,26 @@ Error: GhostVMHelper.app not found. Use --headless or run vmctl from within Ghos
 
 ## VM / snapshot issues
 
+### Safe runner reports `RO share appears writable`
+
+The runner edits `config.json` after snapshot revert and then probes the mounted
+input share from inside the guest. If this fails:
+
+1. Confirm the VM bundle's active `config.json` has `readOnly: true` for the
+   `--ro` path.
+2. If the input is a disposable staging copy, remove host write bits before
+   starting the VM loop:
+
+   ```bash
+   chmod -R a-w /path/to/staged-input
+   ```
+
+3. Rerun once. Immediately after a VirtioFS mount appears, some host/guest
+   combinations can briefly return inconsistent status from the Host API. The
+   current runner retries and parses the probe exit code explicitly, but a
+   second clean snapshot cycle is still the safest recovery if diagnostics show
+   a real writable share.
+
 ### VM bundle not found
 
 Default location is:

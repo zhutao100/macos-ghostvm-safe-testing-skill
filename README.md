@@ -5,7 +5,7 @@ This repository packages a single **agent skill** for running deterministic, low
 It is designed for **LLM agent tools** (Codex CLI, Claude Code, etc.) that need a verifiable loop:
 
 1. Start from a known-clean VM state (snapshot).
-2. Mount host inputs read-only (VirtioFS read-only enforcement).
+2. Mount host inputs read-only, with an in-guest write probe before running commands.
 3. Copy inputs into a guest-local workspace.
 4. Run commands/tests inside the VM.
 5. Export artifacts (logs, patches) to a dedicated host output directory.

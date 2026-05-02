@@ -365,11 +365,45 @@ if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "[ -d \"$GUEST
     action_required "Expected shared folders not found under:\n  $GUEST_RO\n  $GUEST_RW\nFix: ensure --ro/--rw leaf names are unique and the VM is restarted after config changes."
 fi
 
-# Validate RO is actually read-only.
-if python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "set +e; /usr/bin/touch \"$GUEST_RO/.ghostvm_ro_test\" 2>/dev/null; test \$? -ne 0" >/dev/null 2>&1; then
-    :
-else
-    action_required "RO share appears writable from the guest. Refusing to continue.\nFix: ensure sharedFolders entry for --ro has readOnly=true in config.json (scripts configure this automatically)."
+# Validate RO is actually read-only. Some macOS guest/Host API combinations can
+# transiently report a mismatched process status immediately after VirtioFS
+# mount, so parse the touch exit code explicitly and retry before failing.
+ro_check_ok=0
+ro_check_output=""
+for attempt in 1 2 3; do
+    set +e
+    ro_check_output="$(
+        python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "
+          set +e
+          ro_check_file=\"$GUEST_RO/.ghostvm_ro_test\"
+          /usr/bin/touch \"\$ro_check_file\" >/dev/null 2>&1
+          touch_exit=\$?
+          /bin/rm -f \"\$ro_check_file\" >/dev/null 2>&1
+          /bin/echo \"touch_exit=\$touch_exit\"
+          /usr/bin/test \"\$touch_exit\" -ne 0
+        " 2>&1
+    )"
+    ro_check_status=$?
+    set -e
+
+    if [[ "$ro_check_status" -eq 0 ]]; then
+        ro_check_ok=1
+        break
+    fi
+
+    if [[ "$ro_check_output" =~ touch_exit=([0-9]+) ]] && [[ "${BASH_REMATCH[1]}" -ne 0 ]]; then
+        ro_check_ok=1
+        break
+    fi
+
+    sleep "$attempt"
+done
+
+if [[ "$ro_check_ok" -ne 1 ]]; then
+    say "[runner] RO validation output: ${ro_check_output:-<empty>}" >&2
+    say "[runner] guest RO listing:" >&2
+    python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/ls -lde "$GUEST_RO" >&2 || true
+    action_required "RO share appears writable from the guest. Refusing to continue.\nFix: ensure sharedFolders entry for --ro has readOnly=true in config.json (scripts configure this automatically). For disposable staged inputs, also consider removing host write bits before running the VM loop."
 fi
 
 # Validate RW is writable.
