@@ -406,8 +406,28 @@ if [[ "$ro_check_ok" -ne 1 ]]; then
     action_required "RO share appears writable from the guest. Refusing to continue.\nFix: ensure sharedFolders entry for --ro has readOnly=true in config.json (scripts configure this automatically). For disposable staged inputs, also consider removing host write bits before running the VM loop."
 fi
 
-# Validate RW is writable.
-if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/usr/bin/touch \"$GUEST_RW/.ghostvm_rw_test\" && /bin/rm -f \"$GUEST_RW/.ghostvm_rw_test\"" >/dev/null 2>&1; then
+# Validate RW is writable. The VirtioFS mount can briefly appear before write
+# permissions are usable, especially immediately after snapshot revert.
+rw_check_ok=0
+rw_check_output=""
+for attempt in 1 2 3; do
+    set +e
+    rw_check_output="$(
+        python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/usr/bin/touch \"$GUEST_RW/.ghostvm_rw_test\" && /bin/rm -f \"$GUEST_RW/.ghostvm_rw_test\"" 2>&1
+    )"
+    rw_check_status=$?
+    set -e
+
+    if [[ "$rw_check_status" -eq 0 ]]; then
+        rw_check_ok=1
+        break
+    fi
+
+    sleep "$attempt"
+done
+
+if [[ "$rw_check_ok" -ne 1 ]]; then
+    say "[runner] RW validation output: ${rw_check_output:-<empty>}" >&2
     action_required "RW share is not writable from the guest. Ensure --rw points to a writable host directory."
 fi
 
