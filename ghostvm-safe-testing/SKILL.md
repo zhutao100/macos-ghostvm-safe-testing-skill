@@ -184,6 +184,16 @@ Outputs appear on the host under:
 <host-output>/ghostvm-runs/<Name>/<run-id>/
 ```
 
+The runner exports its own logs, exit code, guest environment notes, and an optional
+`git.diff`. It runs the command from a guest-local copy of the input, so artifacts
+created under the project tree (for example `.artifacts/ui/.../results.xcresult`)
+remain guest-local unless the command copies them to the RW share. For UI evidence
+runs, append an explicit export step to the command, for example:
+
+```bash
+--cmd './scripts/ui/ui_loop.sh ...; status=$?; latest="$(ls -td .artifacts/ui/* | sed -n "1p")"; mkdir -p "/Volumes/My Shared Files/<rw-leaf>/ui-artifacts"; [ -n "$latest" ] && ditto "$latest" "/Volumes/My Shared Files/<rw-leaf>/ui-artifacts/$(basename "$latest")"; exit "$status"'
+```
+
 ### 3) Apply changes back to host (optional)
 
 If the input was a git repo, the runner attempts to export a patch:

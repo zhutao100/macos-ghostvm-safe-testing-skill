@@ -257,4 +257,11 @@ ghostvm-safe-testing/scripts/ghostvm_safe_test.sh \
   --cmd 'swift test'
 ```
 
+The runner copies the read-only input into a guest-local workspace before running
+the command. It exports runner logs, exit code, environment notes, and `git.diff`
+to the writable host output path. Command-generated artifacts under the copied
+project tree stay guest-local unless the command copies them to the RW share. For
+Xcode UI runs, include an explicit copy/`ditto` step for `.artifacts/ui` or the
+latest `.xcresult` into `/Volumes/My Shared Files/<rw-leaf>/...`.
+
 If the doctor or runner reports a missing prerequisite (VM not found, GhostTools unreachable, snapshot missing, `vmctl` wrapper missing), fix it manually and re-run.
