@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "notes": "Copy to local-vms.json and keep machine-specific VM resources current. The local file is git ignored.",
+  "ghostvm_app": "/Applications/GhostVM.app",
+  "vmctl": "/usr/local/bin/vmctl",
+  "default_snapshot": "automation-ready",
+  "vms": [
+    {
+      "name": "macos-15",
+      "bundle_path": "~/VMs/macos-15.GhostVM",
+      "guest": {
+        "username": "admin",
+        "password": "<guest-password>",
+        "auto_login": true
+      },
+      "snapshots": {
+        "automation_ready": "automation-ready"
+      },
+      "capabilities": [
+        "homebrew",
+        "xcode",
+        "xcode_license_accepted",
+        "xcode_ui_testing_seeded"
+      ]
+    },
+    {
+      "name": "macos-26",
+      "bundle_path": "~/VMs/macos-26.GhostVM",
+      "guest": {
+        "username": "admin",
+        "password": "<guest-password>",
+        "auto_login": true
+      },
+      "snapshots": {
+        "automation_ready": "automation-ready"
+      },
+      "capabilities": [
+        "homebrew",
+        "xcode",
+        "xcode_license_accepted",
+        "xcode_ui_testing_seeded"
+      ]
+    }
+  ],
+  "preferred_xcode_ui_test_targets": [
+    {
+      "vm": "macos-15",
+      "destination": "platform=macOS",
+      "snapshot": "automation-ready"
+    },
+    {
+      "vm": "macos-26",
+      "destination": "platform=macOS",
+      "snapshot": "automation-ready"
+    }
+  ]
+}

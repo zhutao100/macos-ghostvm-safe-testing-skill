@@ -46,6 +46,16 @@ This skill provides a **repeatable**, **low-risk** workflow to run commands/test
 
 If any of the above is false, run the doctor script; it will print an **ACTION REQUIRED (human)** section.
 
+## Local resource config
+
+Before asking a user for VM names, bundle paths, snapshots, or disposable guest accounts, check the installed skill directory for:
+
+```text
+config/local-vms.json
+```
+
+This file is machine-local and git ignored. Create it from the tracked template `config/local-vms.example.json` when missing. Keep it `0600` when it contains guest passwords, and keep it updated when VM bundles, snapshots, guest accounts, or tool paths change. Treat any password values in the local file as sensitive local test-lab data: use them only for the disposable guest workflow that needs them, and never copy them into tracked files, artifacts, or user-visible summaries.
+
 ## Quick start
 
 ### 1) Sanity-check host + VM
@@ -191,7 +201,7 @@ remain guest-local unless the command copies them to the RW share. For UI eviden
 runs, append an explicit export step to the command, for example:
 
 ```bash
---cmd './scripts/ui/ui_loop.sh ...; status=$?; latest="$(ls -td .artifacts/ui/* | sed -n "1p")"; mkdir -p "/Volumes/My Shared Files/<rw-leaf>/ui-artifacts"; [ -n "$latest" ] && ditto "$latest" "/Volumes/My Shared Files/<rw-leaf>/ui-artifacts/$(basename "$latest")"; exit "$status"'
+--cmd './scripts/ui/ui_loop.sh ...; rc=$?; latest="$(ls -td .artifacts/ui/* | sed -n "1p")"; mkdir -p "/Volumes/My Shared Files/<rw-leaf>/ui-artifacts"; [ -n "$latest" ] && ditto "$latest" "/Volumes/My Shared Files/<rw-leaf>/ui-artifacts/$(basename "$latest")"; exit "$rc"'
 ```
 
 ### 3) Apply changes back to host (optional)

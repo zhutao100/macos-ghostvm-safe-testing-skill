@@ -1,8 +1,8 @@
 # AGENTS.md
 
-This repo is an **agent skill bundle**. The only production artifact is:
+This repo is an **agent skill bundle**. The installable production artifact is:
 
-- `ghostvm-safe-testing/SKILL.md`
+- `ghostvm-safe-testing/`
 
 Everything else exists to support that skill (scripts, assets, references).
 
@@ -18,6 +18,9 @@ Everything else exists to support that skill (scripts, assets, references).
   - `ghostvm_prepare_xcode_ui_testing.sh` — convenience wrapper for standard Xcode/XCTest UI-testing snapshot prep
   - `ghostvm_safe_test.sh` — safe ‘revert → copy → run → export’ loop
 - `ghostvm-safe-testing/assets/` — copy-ready templates for per-project configuration
+- `ghostvm-safe-testing/config/` — skill-local config templates and git-ignored machine-local VM inventory
+  - `local-vms.example.json` — tracked machine-local VM resource template
+  - `local-vms.json` — git-ignored local VM resource inventory; consult and update before asking users for VM paths/snapshots
 - `ghostvm-safe-testing/references/` — deeper docs for edge cases / troubleshooting
   - `headless-automation-gating.md` — rationale + operational patterns for TCC and Local Network gating
   - `macos-dev-testing-ready.md` — fresh macOS readiness checklist
@@ -50,6 +53,7 @@ Everything else exists to support that skill (scripts, assets, references).
    - GhostVM installed
    - `vmctl` available on PATH
    - prepared VM with GhostTools running
+   - local VM resources may be documented in `ghostvm-safe-testing/config/local-vms.json`
 
 6. **Error handling policy**
    - Scripts should fail fast with concrete, actionable output.

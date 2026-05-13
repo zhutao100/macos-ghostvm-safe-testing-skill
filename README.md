@@ -17,6 +17,9 @@ It also includes a **disposable-VM preparation path** for guest automation that 
 
 - `ghostvm-safe-testing/` — the skill folder
   - `SKILL.md` — the agent-facing entrypoint
+  - `config/` — skill-local configuration files
+    - `local-vms.example.json` — tracked template for a machine-local VM inventory
+    - `local-vms.json` — git-ignored local VM inventory for agents to consult before asking for paths/snapshots
   - `scripts/` — ready-to-run helpers
     - `install_vmctl_wrapper.sh` — put a `vmctl` wrapper on your `PATH` (recommended)
     - `ghostvm_doctor.sh` — sanity checks + actionable diagnostics
@@ -32,16 +35,26 @@ It also includes a **disposable-VM preparation path** for guest automation that 
 
 Codex scans for skills under `~/.agents/skills/**/SKILL.md` (or repo-local `.agents/skills/**/SKILL.md`).
 
-A simple install is to place this repo under your user skills directory:
+A simple install is to place the skill folder under your user skills directory:
 
 ```bash
 mkdir -p ~/.agents/skills
-cp -R ./ghostvm-safe-testing-skill ~/.agents/skills/
+cp -R ./ghostvm-safe-testing ~/.agents/skills/
 ```
 
 Then restart your agent tool (or reload skills) so it detects:
 
-- `ghostvm-safe-testing/SKILL.md`
+- `~/.agents/skills/ghostvm-safe-testing/SKILL.md`
+
+## Local VM inventory
+
+For repeat agent sessions, create a machine-local inventory:
+
+```bash
+cp ghostvm-safe-testing/config/local-vms.example.json ghostvm-safe-testing/config/local-vms.json
+```
+
+Keep `ghostvm-safe-testing/config/local-vms.json` updated with VM bundle paths, prepared snapshot names, guest accounts, and tool paths. The file is git ignored and lives under the installed skill directory so agents can consult the same local disposable-guest details after installing only `ghostvm-safe-testing/`.
 
 ## Human prerequisites (cannot be fully automated)
 
