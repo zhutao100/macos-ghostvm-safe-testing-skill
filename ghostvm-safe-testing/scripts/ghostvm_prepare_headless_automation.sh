@@ -17,6 +17,7 @@ Usage:
     [--xcode-ui-testing] \
     [--xcode-app /Applications/Xcode.app] \
     [--sudo-password-env GHOSTVM_GUEST_SUDO_PASSWORD] \
+    [--replace-snapshot] \
     [--skip-local-network] \
     [--skip-tcc] \
     [--skip-safari-js-apple-events] \
@@ -51,7 +52,8 @@ Recommended workflow:
   2) apply offline seed while the VM is stopped
   3) optionally prime any extra app-specific prompts in the guest UI
   4) create a new snapshot (for example, automation-ready)
-     - if the snapshot already exists, this script replaces it (delete + recreate)
+     - if the snapshot already exists, this script fails without deleting it
+     - pass --replace-snapshot only after the user explicitly asks to overwrite
 
 Examples:
   # Pure offline preparation from a clean base snapshot.
@@ -59,6 +61,13 @@ Examples:
     --vm Dev \
     --base-snapshot clean-state \
     --snapshot automation-ready
+
+  # Explicitly overwrite an existing prepared snapshot.
+  ghostvm_prepare_headless_automation.sh \
+    --vm Dev \
+    --base-snapshot clean-state \
+    --snapshot automation-ready \
+    --replace-snapshot
 
   # Also allow extra AppleEvents targets and an extra TCC client.
   ghostvm_prepare_headless_automation.sh \
@@ -114,6 +123,7 @@ BUNDLE_PATH=""
 ROOT_DIR="$HOME/VMs"
 BASE_SNAPSHOT=""
 SNAPSHOT_NAME=""
+REPLACE_SNAPSHOT=0
 KEEP_RUNNING=0
 PRIME_AUTOMATION=0
 PRIME_LOCAL_NETWORK=0
@@ -152,6 +162,10 @@ while [[ $# -gt 0 ]]; do
         --snapshot)
             SNAPSHOT_NAME="$2"
             shift 2
+            ;;
+        --replace-snapshot)
+            REPLACE_SNAPSHOT=1
+            shift
             ;;
         --cidr)
             CIDRS+=("$2")
@@ -259,6 +273,10 @@ if [[ -n "$BASE_SNAPSHOT" && -n "$SNAPSHOT_NAME" && "$BASE_SNAPSHOT" == "$SNAPSH
     action_required "--base-snapshot and --snapshot must differ. Revert from the base, then create a new prepared snapshot."
 fi
 
+if [[ $REPLACE_SNAPSHOT -eq 1 && -z "$SNAPSHOT_NAME" ]]; then
+    action_required "--replace-snapshot requires --snapshot <name>."
+fi
+
 if [[ $KEEP_RUNNING -eq 1 && -n "$SNAPSHOT_NAME" ]]; then
     action_required "--keep-running cannot be combined with --snapshot because snapshot creation requires the VM to be stopped."
 fi
@@ -288,6 +306,7 @@ say "[prep] vm=$VM_NAME"
 say "[prep] bundle=$BUNDLE_PATH"
 [[ -n "$BASE_SNAPSHOT" ]] && say "[prep] base_snapshot=$BASE_SNAPSHOT"
 [[ -n "$SNAPSHOT_NAME" ]] && say "[prep] snapshot=$SNAPSHOT_NAME"
+[[ $REPLACE_SNAPSHOT -eq 1 ]] && say "[prep] replace_snapshot=enabled"
 [[ $SKIP_LOCAL_NETWORK -eq 1 ]] && say "[prep] local_network=skip"
 [[ $SKIP_TCC -eq 1 ]] && say "[prep] tcc=skip"
 [[ $SKIP_SAFARI_JS_APPLE_EVENTS -eq 1 ]] && say "[prep] safari_js_apple_events=skip"
@@ -376,9 +395,13 @@ snapshot_exists() {
 create_snapshot() {
     local name="$1"
     if snapshot_exists "$name"; then
-        say "[prep] deleting existing snapshot: $name"
-        if ! vmctl snapshot "$BUNDLE_PATH" delete "$name" >/dev/null 2>&1; then
-            action_required "Failed to delete existing snapshot '$name'. Ensure the VM is stopped and the snapshot name is valid."
+        if [[ $REPLACE_SNAPSHOT -eq 1 ]]; then
+            say "[prep] deleting existing snapshot: $name"
+            if ! vmctl snapshot "$BUNDLE_PATH" delete "$name" >/dev/null 2>&1; then
+                action_required "Failed to delete existing snapshot '$name'. Ensure the VM is stopped and the snapshot name is valid."
+            fi
+        else
+            action_required "Snapshot '$name' already exists. Choose a new --snapshot name, or rerun with --replace-snapshot only after the user explicitly asks to overwrite it."
         fi
     else
         local rc=$?
@@ -394,6 +417,22 @@ create_snapshot() {
     say "[prep] snapshot created: $name"
 }
 
+preflight_target_snapshot() {
+    local name="$1"
+    if snapshot_exists "$name"; then
+        if [[ $REPLACE_SNAPSHOT -eq 1 ]]; then
+            say "[prep] existing snapshot will be replaced: $name"
+        else
+            action_required "Snapshot '$name' already exists. Choose a new --snapshot name, or rerun with --replace-snapshot only after the user explicitly asks to overwrite it."
+        fi
+    else
+        local rc=$?
+        if [[ $rc -eq 2 ]]; then
+            action_required "Failed to list snapshots. Ensure the VM bundle exists and vmctl can access it."
+        fi
+    fi
+}
+
 stop_vm_if_running() {
     if vmctl socket "$BUNDLE_PATH" >/dev/null 2>&1 || vm_pid_alive; then
         say "[prep] stopping running VM"
@@ -401,6 +440,10 @@ stop_vm_if_running() {
         wait_for_vm_stop || action_required "Timed out waiting for VM to stop. Stop it in GhostVM GUI and retry."
     fi
 }
+
+if [[ -n "$SNAPSHOT_NAME" ]]; then
+    preflight_target_snapshot "$SNAPSHOT_NAME"
+fi
 
 if vmctl socket "$BUNDLE_PATH" >/dev/null 2>&1 || vm_pid_alive; then
     stop_vm_if_running

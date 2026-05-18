@@ -39,6 +39,7 @@ Everything else exists to support that skill (scripts, assets, references).
 3. **Default to snapshot-driven prep for privacy gating**
    - Treat `clean-state` → offline seed → `automation-ready` as the normal preparation path.
    - Treat `clean-state` → `--xcode-ui-testing` → `xcode-ui-ready` as the normal path for XCTest/macOS UI tests.
+   - Do not delete or overwrite existing snapshots unless the user explicitly instructs it; pass `--replace-snapshot` only for that explicit overwrite.
    - Use interactive priming only for approvals that are intentionally outside the seeded baseline.
 
 4. **Keep the prep boundary correct**
@@ -55,7 +56,11 @@ Everything else exists to support that skill (scripts, assets, references).
    - prepared VM with GhostTools running
    - local VM resources may be documented in `ghostvm-safe-testing/config/local-vms.json`
 
-6. **Error handling policy**
+6. **Prefer keeping VMs running when reuse is likely**
+   - Use `--keep-running` for safe-test runs that are likely to need follow-up guest commands, log inspection, or iterative UI work.
+   - Stop the VM explicitly when the repeated-use session is done.
+
+7. **Error handling policy**
    - Scripts should fail fast with concrete, actionable output.
    - When prerequisites are missing, print an "ACTION REQUIRED (human)" section.
 

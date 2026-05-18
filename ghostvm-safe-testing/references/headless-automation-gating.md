@@ -57,6 +57,8 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
   --user agent
 ```
 
+If `xcode-ui-ready` already exists, the helper stops before changing VM state. Pick a new snapshot name, or pass `--replace-snapshot` only after the user explicitly asks to overwrite that snapshot.
+
 That path does both halves:
 
 - **Offline seed while stopped:** adds common Xcode UI-testing TCC candidates when they exist in the guest image:
@@ -235,7 +237,7 @@ That does:
 3. mount `disk.img` from the host
 4. seed Local Network defaults, Safari's JavaScript-from-Apple-Events preference, and baseline TCC rows
 5. detach the image
-6. create `automation-ready`
+6. create `automation-ready`; if it already exists, fail without deleting it unless `--replace-snapshot` was passed by explicit user instruction
 
 For Xcode UI testing, use the dedicated option:
 
@@ -258,6 +260,8 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
 ```
 
 The priming step boots the guest, exercises the relevant operation, and expects a human to click through any guest-visible prompt. The resulting state is then captured in the new snapshot.
+
+Do not delete an existing prepared snapshot as a convenience. Use a new snapshot name by default, and use `--replace-snapshot` only when the user explicitly approves deleting and recreating the target snapshot.
 
 ---
 

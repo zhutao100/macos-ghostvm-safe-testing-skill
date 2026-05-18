@@ -31,6 +31,7 @@ Outputs:
 Notes:
   - `vmctl remote exec` requires an absolute executable path. This script uses /bin/zsh -lc ...
   - `vmctl remote exec` uses GhostTools' default exec timeout (30s). This script uses Host API exec with an explicit timeout for the long-running guest step.
+  - Prefer --keep-running when follow-up guest commands or inspection are likely, then stop the VM explicitly when done.
 USAGE
 }
 

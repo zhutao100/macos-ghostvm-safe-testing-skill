@@ -173,7 +173,7 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
   --snapshot automation-ready
 ```
 
-If the snapshot already exists, the helper replaces it (delete + recreate) so re-running the command is safe.
+If the snapshot already exists, the helper fails before changing VM state. Choose a new prepared snapshot name, or add `--replace-snapshot` only when you explicitly intend to delete and recreate that snapshot.
 
 For Xcode/XCTest macOS UI tests, prepare a dedicated snapshot:
 
@@ -240,6 +240,13 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
   --vm <Name> \
   --snapshot automation-ready \
   --skip-safari-js-apple-events
+
+# explicitly delete and recreate an existing target snapshot
+ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
+  --vm <Name> \
+  --base-snapshot clean-state \
+  --snapshot automation-ready \
+  --replace-snapshot
 ```
 
 Use interactive priming only for approvals that are intentionally outside the seeded baseline:
@@ -276,5 +283,7 @@ to the writable host output path. Command-generated artifacts under the copied
 project tree stay guest-local unless the command copies them to the RW share. For
 Xcode UI runs, include an explicit copy/`ditto` step for `.artifacts/ui` or the
 latest `.xcresult` into `/Volumes/My Shared Files/<rw-leaf>/...`.
+
+For repeated guest work, pass `--keep-running` to `ghostvm_safe_test.sh` when follow-up commands or inspection are likely. This avoids repeated VM bring-up and shutdown churn; stop the VM explicitly when the session is done.
 
 If the doctor or runner reports a missing prerequisite (VM not found, GhostTools unreachable, snapshot missing, `vmctl` wrapper missing), fix it manually and re-run.

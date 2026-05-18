@@ -135,6 +135,8 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_headless_automation.sh \
   --appleevent-target com.apple.TargetApp
 ```
 
+If `automation-ready` already exists, the helper fails without deleting it. Use a new snapshot name, or pass `--replace-snapshot` only after the user explicitly approves overwriting that snapshot.
+
 ### You only want to patch specific guest users
 
 Use repeatable `--user` flags:

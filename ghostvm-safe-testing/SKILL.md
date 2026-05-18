@@ -102,7 +102,7 @@ scripts/ghostvm_prepare_headless_automation.sh \
   --snapshot automation-ready
 ```
 
-If the snapshot already exists, the helper replaces it (delete + recreate) so re-running the command is safe.
+If the snapshot already exists, the helper fails before changing VM state. Choose a new prepared snapshot name, or add `--replace-snapshot` only when the user explicitly instructed you to overwrite that snapshot.
 
 For Xcode/XCTest macOS UI tests, use the explicit Xcode path. The in-guest bootstrap needs noninteractive sudo in the disposable guest. Use temporary passwordless sudo, pass a known disposable-guest password through `GHOSTVM_GUEST_SUDO_PASSWORD` for that run only, or run `ghostvm_guest_bootstrap_xcode_ui_testing.sh` manually once inside the guest before snapshotting:
 
@@ -149,6 +149,9 @@ Useful extensions:
 
 # leave Safari's JavaScript-from-Apple-Events setting unchanged
 --skip-safari-js-apple-events
+
+# delete and recreate an existing target snapshot; use only after explicit user instruction
+--replace-snapshot
 ```
 
 Then run the safe loop using the prepared snapshot:
@@ -176,7 +179,7 @@ This runner:
 - copies the RO input into a guest-local workspace
 - runs your command inside that workspace
 - writes logs + optional `git.diff` into the RW output folder
-- optionally stops the VM
+- optionally stops the VM; pass `--keep-running` when more guest work is likely in this session
 
 ```bash
 scripts/ghostvm_safe_test.sh \
@@ -204,6 +207,8 @@ runs, append an explicit export step to the command, for example:
 --cmd './scripts/ui/ui_loop.sh ...; rc=$?; latest="$(ls -td .artifacts/ui/* | sed -n "1p")"; mkdir -p "/Volumes/My Shared Files/<rw-leaf>/ui-artifacts"; [ -n "$latest" ] && ditto "$latest" "/Volumes/My Shared Files/<rw-leaf>/ui-artifacts/$(basename "$latest")"; exit "$rc"'
 ```
 
+When you estimate repeated guest usage (for example, follow-up commands, log inspection, or iterative UI work), prefer `--keep-running` to avoid repeated VM bring-up and shutdown churn. Stop the VM explicitly when that session is done.
+
 ### 3) Apply changes back to host (optional)
 
 If the input was a git repo, the runner attempts to export a patch:
@@ -223,6 +228,7 @@ Keep these true unless the user explicitly opts out:
 3. **Only a dedicated host output directory is writable.**
 4. **VM state is reset via snapshot revert before each run.**
 5. **Automation/TCC, Automation Mode, Developer Tools, and Local Network state are baked into disposable snapshots, not granted ad hoc during agent runs.**
+6. **Existing snapshots are not deleted unless the user explicitly instructs it.** Use `--replace-snapshot` only for that explicit overwrite.
 
 The safe runner validates the read-only input share from inside the guest before
 copying it. For extra defense when using disposable staged inputs, remove host
