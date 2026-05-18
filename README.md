@@ -286,4 +286,6 @@ latest `.xcresult` into `/Volumes/My Shared Files/<rw-leaf>/...`.
 
 For repeated guest work, pass `--keep-running` to `ghostvm_safe_test.sh` when follow-up commands or inspection are likely. This avoids repeated VM bring-up and shutdown churn; stop the VM explicitly when the session is done.
 
+Shared folders are persistent VM settings. If a run or manual setup adds session-scoped shares, especially temp or ephemeral host directories, remove those shares or restore the previous settings before wrapping up.
+
 If the doctor or runner reports a missing prerequisite (VM not found, GhostTools unreachable, snapshot missing, `vmctl` wrapper missing), fix it manually and re-run.

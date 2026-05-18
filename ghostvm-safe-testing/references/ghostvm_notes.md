@@ -56,6 +56,8 @@ This skill edits `config.json` while the VM is stopped to set:
 - exactly one RO folder (the input)
 - exactly one RW folder (the artifact output)
 
+Shared folders persist in the active VM settings. If you add shares manually in GhostVM settings or by editing `config.json`, especially temp or ephemeral host directories, remove those shares or restore the previous `sharedFolders` configuration before wrapping up. A snapshot revert restores `config.json` only when the snapshot contains the desired settings.
+
 ## Why scripts do not use `vmctl remote exec` for long runs
 
 The GhostTools `/api/v1/exec` endpoint supports a `timeout` field (seconds).

@@ -59,6 +59,12 @@ input share from inside the guest. If this fails:
    second clean snapshot cycle is still the safest recovery if diagnostics show
    a real writable share.
 
+### Temporary shared folders remain in VM settings
+
+GhostVM persists shared folders in the VM bundle's `config.json`. If a run or manual setup added temp/ephemeral host paths, remove those entries from GhostVM settings or restore the previous `sharedFolders` configuration before reusing the VM.
+
+If the desired settings are in a clean snapshot, stop the VM and revert that snapshot. If you edited `config.json` directly, stop the VM before editing and then restart it so the shared-folder mount reflects the restored settings.
+
 ### VM bundle not found
 
 Default location is:

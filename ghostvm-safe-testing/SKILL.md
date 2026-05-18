@@ -229,6 +229,7 @@ Keep these true unless the user explicitly opts out:
 4. **VM state is reset via snapshot revert before each run.**
 5. **Automation/TCC, Automation Mode, Developer Tools, and Local Network state are baked into disposable snapshots, not granted ad hoc during agent runs.**
 6. **Existing snapshots are not deleted unless the user explicitly instructs it.** Use `--replace-snapshot` only for that explicit overwrite.
+7. **Session-scoped shared folders are removed or restored.** Do not leave temp/ephemeral host paths in long-lived VM settings.
 
 The safe runner validates the read-only input share from inside the guest before
 copying it. For extra defense when using disposable staged inputs, remove host
@@ -265,6 +266,8 @@ GhostVM snapshots are coarse-grained copies of bundle files and include `config.
 That means `vmctl snapshot ... revert <name>` will overwrite any `config.json` edits (including shared folder settings).
 
 **Therefore:** apply shared-folder edits **after** snapshot revert and before starting the VM.
+
+If you add shared folders through GhostVM settings or by editing `config.json`, treat them as persistent VM settings. Before wrapping up, remove any session-scoped shares, especially temp or ephemeral host directories, or restore the previous `sharedFolders` configuration. A snapshot revert can restore `config.json` only when the snapshot contains the desired settings.
 
 ### `vmctl remote exec` requires an absolute executable path
 

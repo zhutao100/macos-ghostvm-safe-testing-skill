@@ -48,6 +48,7 @@ Everything else exists to support that skill (scripts, assets, references).
    - Allow `GHOSTVM_GUEST_SUDO_PASSWORD` only for disposable guests when noninteractive sudo is required; never persist guest passwords in docs/configs.
    - Do not move baseline TCC/Local Network setup back into guest-live instructions unless there is a concrete reason.
    - If a change depends on guest identity, extend `--tcc-client`, `--tcc-bundle-id`, `--appleevent-target`, `--user`, `--xcode-app`, or the references docs.
+   - If you add shared folders in VM settings or `config.json`, especially temp/ephemeral host paths, remove them or restore the prior shared-folder settings before wrapping up.
 
 5. **Be explicit about assumptions**
    - macOS 15+ on Apple Silicon
