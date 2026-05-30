@@ -10,6 +10,7 @@ Checks:
   - vmctl is available and not installed as a symlink
   - VM bundle exists
   - snapshot exists
+  - config avoids known GhostVMHelper prompt/failure modes
   - (optional) VM can be started via GhostVMHelper and GhostTools responds to /health
   - (optional) remote exec works using an absolute executable path
 
@@ -114,6 +115,15 @@ fi
 CONFIG_JSON="$BUNDLE_PATH/config.json"
 if [[ ! -f "$CONFIG_JSON" ]]; then
     action_required "config.json not found in VM bundle: $CONFIG_JSON"
+fi
+
+GUARD_PY="$(dirname "$0")/ghostvm_automation_guard.py"
+if [[ -f "$GUARD_PY" ]]; then
+    if ! python3 "$GUARD_PY" inspect --bundle "$BUNDLE_PATH" >/dev/null; then
+        action_required "GhostVM config has automation-blocking settings. Re-run:
+  python3 '$GUARD_PY' inspect --bundle '$BUNDLE_PATH'
+Then fix missing shared-folder paths or unavailable/empty bridged networking."
+    fi
 fi
 
 SNAPSHOT_DIR="$BUNDLE_PATH/Snapshots/$SNAPSHOT_NAME"

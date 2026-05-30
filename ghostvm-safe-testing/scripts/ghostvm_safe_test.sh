@@ -16,14 +16,15 @@ Usage:
 Workflow:
   1) stop VM (if running)
   2) revert snapshot
-  3) configure shared folders (RO + RW) by editing <bundle>/config.json
-  4) start VM via GhostVMHelper (background)
-  5) wait for Host API socket + GhostTools health
-  6) validate RO is actually read-only and RW is writable
-  7) copy RO input into guest-local workspace (/Users/Shared/...)
-  8) run your command in that workspace
-  9) write logs + optional git patch into RW output directory
-  10) stop VM unless --keep-running
+  3) apply temporary GhostVM host/config automation guards
+  4) configure shared folders (RO + RW) by editing <bundle>/config.json
+  5) start VM via GhostVMHelper (background)
+  6) wait for Host API socket + GhostTools health
+  7) validate RO is actually read-only and RW is writable
+  8) copy RO input into guest-local workspace (/Users/Shared/...)
+  9) run your command in that workspace
+  10) write logs + optional git patch into RW output directory
+  11) stop VM and restore config/defaults unless --keep-running
 
 Outputs:
   <rw>/ghostvm-runs/<Name>/<run-id>/
@@ -31,7 +32,8 @@ Outputs:
 Notes:
   - `vmctl remote exec` requires an absolute executable path. This script uses /bin/zsh -lc ...
   - `vmctl remote exec` uses GhostTools' default exec timeout (30s). This script uses Host API exec with an explicit timeout for the long-running guest step.
-  - Prefer --keep-running when follow-up guest commands or inspection are likely, then stop the VM explicitly when done.
+  - Prefer --keep-running when follow-up guest commands or inspection are likely.
+  - With --keep-running, finish by running ghostvm_automation_guard.py restore --state <run>/automation_state.json --stop-vm.
 USAGE
 }
 
@@ -53,6 +55,10 @@ RW_PATH=""
 CMD_STR=""
 KEEP_RUNNING=0
 CMD_TIMEOUT="${GHOSTVM_CMD_TIMEOUT:-3600}"
+STARTED_BY_RUNNER=0
+START_PID=""
+AUTOMATION_STATE=""
+AUTOMATION_STATE_RESTORED=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -186,6 +192,9 @@ RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
 HOST_RUN_DIR="$RW_ABS/ghostvm-runs/$VM_NAME/$RUN_ID"
 mkdir -p "$HOST_RUN_DIR"
 printf '%s' "$CMD_STR" >"$HOST_RUN_DIR/cmd.txt"
+AUTOMATION_STATE="$HOST_RUN_DIR/automation_state.json"
+GUARD_PY="$(dirname "$0")/ghostvm_automation_guard.py"
+[[ -f "$GUARD_PY" ]] || action_required "Automation guard helper not found: $GUARD_PY"
 
 say "[runner] vm=$VM_NAME"
 say "[runner] bundle=$BUNDLE_PATH"
@@ -194,6 +203,49 @@ say "[runner] ro=$RO_ABS (guest leaf: $RO_NAME)"
 say "[runner] rw=$RW_ABS (guest leaf: $RW_NAME)"
 say "[runner] run=$HOST_RUN_DIR"
 say "[runner] timeout=${CMD_TIMEOUT}s"
+
+restore_automation_state() {
+    if [[ -n "${AUTOMATION_STATE:-}" && -f "$AUTOMATION_STATE" && $AUTOMATION_STATE_RESTORED -ne 1 ]]; then
+        say "[runner] restoring GhostVM config/defaults"
+        if python3 "$GUARD_PY" restore --state "$AUTOMATION_STATE" >/dev/null 2>&1; then
+            AUTOMATION_STATE_RESTORED=1
+            return 0
+        fi
+        AUTOMATION_STATE_RESTORED=0
+        say "[runner] error: failed to restore automation state from $AUTOMATION_STATE"
+        return 1
+    fi
+    return 0
+}
+
+print_restore_command() {
+    say "[runner] automation state remains active: $AUTOMATION_STATE"
+    say "[runner] finish/restore command:"
+    say "  python3 $GUARD_PY restore --state $AUTOMATION_STATE --stop-vm"
+}
+
+cleanup() {
+    local status=$?
+    if [[ $KEEP_RUNNING -eq 1 && $STARTED_BY_RUNNER -eq 1 ]]; then
+        if [[ -n "${AUTOMATION_STATE:-}" && -f "$AUTOMATION_STATE" && $AUTOMATION_STATE_RESTORED -ne 1 ]]; then
+            say "[runner] --keep-running set; leaving VM/config state for inspection after failure"
+            print_restore_command
+        fi
+    else
+        if [[ $STARTED_BY_RUNNER -eq 1 ]]; then
+            say "[runner] cleanup: stopping VM"
+            vmctl stop "$BUNDLE_PATH" >/dev/null 2>&1 || true
+            if [[ -n "$START_PID" ]]; then
+                wait "$START_PID" >/dev/null 2>&1 || true
+            fi
+        fi
+        if ! restore_automation_state; then
+            [[ $status -eq 0 ]] && status=1
+        fi
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
 
 # Stop VM if running (even if the Host API socket is missing).
 PID_FILE="$BUNDLE_PATH/vmctl.pid"
@@ -226,8 +278,20 @@ if ! vmctl snapshot "$BUNDLE_PATH" revert "$SNAPSHOT_NAME" >/dev/null 2>&1; then
     action_required "Failed to revert snapshot '$SNAPSHOT_NAME'. Ensure it exists and the VM is stopped."
 fi
 
+say "[runner] applying temporary automation guards"
+if ! python3 "$GUARD_PY" apply \
+    --bundle "$BUNDLE_PATH" \
+    --state "$AUTOMATION_STATE" \
+    --force-nat \
+    --disable-port-forwards \
+    --clear-shared-folders \
+    --configure-helper-defaults >/dev/null; then
+    action_required "Failed to apply GhostVM automation guards. See config.json and $AUTOMATION_STATE."
+fi
+
 # Configure shared folders (edits config.json).
-# Note: snapshots include config.json, so configure shares AFTER revert.
+# Note: snapshots include config.json, so configure shares AFTER revert and AFTER
+# guard state is saved; restore then returns the VM to the pre-run config.
 say "[runner] configuring shared folders"
 python3 "$(dirname "$0")/ghostvm_configure_shares.py" \
     --bundle "$BUNDLE_PATH" \
@@ -240,15 +304,6 @@ say "[runner] starting VM via GhostVMHelper (background)"
 vmctl start "$BUNDLE_PATH" >"$START_LOG" 2>&1 &
 START_PID=$!
 STARTED_BY_RUNNER=1
-
-cleanup() {
-    if [[ $STARTED_BY_RUNNER -eq 1 && $KEEP_RUNNING -ne 1 ]]; then
-        say "[runner] cleanup: stopping VM"
-        vmctl stop "$BUNDLE_PATH" >/dev/null 2>&1 || true
-        wait "$START_PID" >/dev/null 2>&1 || true
-    fi
-}
-trap cleanup EXIT
 
 # Wait for socket.
 sock_path=""
@@ -514,12 +569,14 @@ if [[ $KEEP_RUNNING -eq 1 ]]; then
     STARTED_BY_RUNNER=0
     trap - EXIT
     say "[runner] --keep-running set; leaving VM running"
+    print_restore_command
     exit 0
 fi
 
 say "[runner] stopping VM"
 vmctl stop "$BUNDLE_PATH" >/dev/null 2>&1 || true
 wait "$START_PID" >/dev/null 2>&1 || true
+restore_automation_state
 
 STARTED_BY_RUNNER=0
 trap - EXIT

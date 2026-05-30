@@ -21,6 +21,8 @@ Usage:
     [--skip-local-network] \
     [--skip-tcc] \
     [--skip-safari-js-apple-events] \
+    [--skip-automation-tuning] \
+    [--keep-security-responses] \
     [--prime-automation] \
     [--prime-local-network] \
     [--keep-running]
@@ -35,6 +37,9 @@ Prepares a disposable GhostVM guest for unattended automation by combining:
       System Events / Finder / Safari / Mail (default unless --skip-tcc)
     - Safari's Allow JavaScript from Apple Events preference for detected or
       selected guest users (default unless --skip-safari-js-apple-events)
+    - vanilla macOS automation tuning (default unless --skip-automation-tuning):
+      disable automatic update downloads/installs, suppress timed lock, suppress
+      Time Machine new-disk prompts, and opt the disposable data volume out of Spotlight indexing
     - with --xcode-ui-testing: common XCTest/Xcode UI-testing TCC clients,
       including Xcode.app, Xcode Helper.app, xcodebuild, and xcrun candidates
 
@@ -130,6 +135,8 @@ PRIME_LOCAL_NETWORK=0
 SKIP_LOCAL_NETWORK=0
 SKIP_TCC=0
 SKIP_SAFARI_JS_APPLE_EVENTS=0
+SKIP_AUTOMATION_TUNING=0
+KEEP_SECURITY_RESPONSES=0
 XCODE_UI_TESTING=0
 XCODE_APP="/Applications/Xcode.app"
 SUDO_PASSWORD_ENV="GHOSTVM_GUEST_SUDO_PASSWORD"
@@ -216,6 +223,14 @@ while [[ $# -gt 0 ]]; do
             SKIP_SAFARI_JS_APPLE_EVENTS=1
             shift
             ;;
+        --skip-automation-tuning)
+            SKIP_AUTOMATION_TUNING=1
+            shift
+            ;;
+        --keep-security-responses)
+            KEEP_SECURITY_RESPONSES=1
+            shift
+            ;;
         --prime-automation)
             PRIME_AUTOMATION=1
             shift
@@ -295,10 +310,12 @@ if [[ -L "$VMCTL_PATH" ]]; then
 fi
 
 SEED_PY="$(dirname "$0")/ghostvm_guest_privacy_seed.py"
+TUNE_PY="$(dirname "$0")/ghostvm_guest_tune_automation.py"
+GUARD_PY="$(dirname "$0")/ghostvm_automation_guard.py"
 EXEC_SH="$(dirname "$0")/ghostvm_exec.sh"
 REMOTE_EXEC_PY="$(dirname "$0")/ghostvm_remote_exec.py"
 BOOTSTRAP_XCODE_UI_SH="$(dirname "$0")/ghostvm_guest_bootstrap_xcode_ui_testing.sh"
-for required in "$SEED_PY" "$EXEC_SH" "$REMOTE_EXEC_PY" "$BOOTSTRAP_XCODE_UI_SH"; do
+for required in "$SEED_PY" "$TUNE_PY" "$GUARD_PY" "$EXEC_SH" "$REMOTE_EXEC_PY" "$BOOTSTRAP_XCODE_UI_SH"; do
     [[ -x "$required" || -f "$required" ]] || action_required "Missing required helper: $required"
 done
 
@@ -310,6 +327,11 @@ say "[prep] bundle=$BUNDLE_PATH"
 [[ $SKIP_LOCAL_NETWORK -eq 1 ]] && say "[prep] local_network=skip"
 [[ $SKIP_TCC -eq 1 ]] && say "[prep] tcc=skip"
 [[ $SKIP_SAFARI_JS_APPLE_EVENTS -eq 1 ]] && say "[prep] safari_js_apple_events=skip"
+if [[ $SKIP_AUTOMATION_TUNING -eq 0 ]]; then
+    say "[prep] automation_tuning=seed"
+else
+    say "[prep] automation_tuning=skip"
+fi
 if [[ $XCODE_UI_TESTING -eq 1 ]]; then
     say "[prep] xcode_ui_testing=enable"
     say "[prep] xcode_app=$XCODE_APP"
@@ -493,6 +515,96 @@ fi
 say "[prep] applying offline guest-disk seed"
 "${seed_args[@]}"
 
+if [[ $SKIP_AUTOMATION_TUNING -eq 0 ]]; then
+    tune_args=(python3 "$TUNE_PY" --bundle "$BUNDLE_PATH")
+    if [[ $KEEP_SECURITY_RESPONSES -eq 1 ]]; then
+        tune_args+=(--keep-security-responses)
+    fi
+    for user in "${USERS[@]}"; do
+        tune_args+=(--user "$user")
+    done
+    say "[prep] applying offline vanilla-macOS automation tuning"
+    "${tune_args[@]}"
+fi
+
+STARTED_BY_SCRIPT=0
+START_LOG=""
+START_PID=""
+sock_path=""
+AUTOMATION_STATE=""
+AUTOMATION_STATE_RESTORED=0
+GUARD_STATE_DIR=""
+
+ensure_guard_state_path() {
+    if [[ -z "$AUTOMATION_STATE" ]]; then
+        GUARD_STATE_DIR="$(mktemp -d -t ghostvm-prep-automation.XXXXXX)"
+        AUTOMATION_STATE="$GUARD_STATE_DIR/automation_state.json"
+    fi
+}
+
+apply_automation_guard() {
+    ensure_guard_state_path
+    say "[prep] applying temporary automation guards"
+    if ! python3 "$GUARD_PY" apply \
+        --bundle "$BUNDLE_PATH" \
+        --state "$AUTOMATION_STATE" \
+        --force-nat \
+        --disable-port-forwards \
+        --clear-shared-folders \
+        --configure-helper-defaults >/dev/null; then
+        action_required "Failed to apply GhostVM automation guards. See config.json and $AUTOMATION_STATE."
+    fi
+}
+
+restore_automation_guard() {
+    if [[ -n "${AUTOMATION_STATE:-}" && -f "$AUTOMATION_STATE" && $AUTOMATION_STATE_RESTORED -ne 1 ]]; then
+        say "[prep] restoring GhostVM config/defaults"
+        if python3 "$GUARD_PY" restore --state "$AUTOMATION_STATE" --delete-state >/dev/null 2>&1; then
+            AUTOMATION_STATE_RESTORED=1
+            if [[ -n "$GUARD_STATE_DIR" ]]; then
+                rmdir "$GUARD_STATE_DIR" >/dev/null 2>&1 || true
+            fi
+            return 0
+        fi
+        AUTOMATION_STATE_RESTORED=0
+        say "[prep] error: failed to restore automation state from $AUTOMATION_STATE"
+        return 1
+    fi
+    return 0
+}
+
+print_guard_restore_command() {
+    say "[prep] automation state remains active: $AUTOMATION_STATE"
+    say "[prep] finish/restore command:"
+    say "  python3 $GUARD_PY restore --state $AUTOMATION_STATE --stop-vm --delete-state"
+}
+
+cleanup() {
+    local status=$?
+    if [[ $KEEP_RUNNING -eq 1 && $STARTED_BY_SCRIPT -eq 1 ]]; then
+        if [[ -n "${AUTOMATION_STATE:-}" && -f "$AUTOMATION_STATE" && $AUTOMATION_STATE_RESTORED -ne 1 ]]; then
+            say "[prep] --keep-running set; leaving VM/config state for inspection"
+            print_guard_restore_command
+        fi
+    else
+        if [[ $STARTED_BY_SCRIPT -eq 1 ]]; then
+            say "[prep] cleanup: stopping VM"
+            vmctl stop "$BUNDLE_PATH" >/dev/null 2>&1 || true
+            if [[ -n "$START_PID" ]]; then
+                wait "$START_PID" >/dev/null 2>&1 || true
+            fi
+        fi
+        if ! restore_automation_guard; then
+            [[ $status -eq 0 ]] && status=1
+        fi
+    fi
+    if [[ -n "$START_LOG" ]]; then
+        rm -f "$START_LOG" >/dev/null 2>&1 || true
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+
 if [[ $PRIME_AUTOMATION -eq 0 && $PRIME_LOCAL_NETWORK -eq 0 && $XCODE_UI_TESTING -eq 0 ]]; then
     if [[ $KEEP_RUNNING -eq 1 ]]; then
         say "[prep] note: --keep-running has no effect because no priming step booted the guest"
@@ -502,29 +614,13 @@ if [[ $PRIME_AUTOMATION -eq 0 && $PRIME_LOCAL_NETWORK -eq 0 && $XCODE_UI_TESTING
         exit 0
     fi
 
+    apply_automation_guard
     create_snapshot "$SNAPSHOT_NAME"
-    exit 0
+    trap - EXIT
+    cleanup
 fi
 
-STARTED_BY_SCRIPT=0
-START_LOG=""
-START_PID=""
-sock_path=""
-
-cleanup() {
-    if [[ $STARTED_BY_SCRIPT -eq 1 && $KEEP_RUNNING -ne 1 ]]; then
-        say "[prep] cleanup: stopping VM"
-        vmctl stop "$BUNDLE_PATH" >/dev/null 2>&1 || true
-        if [[ -n "$START_PID" ]]; then
-            wait "$START_PID" >/dev/null 2>&1 || true
-        fi
-    fi
-    if [[ -n "$START_LOG" ]]; then
-        rm -f "$START_LOG" >/dev/null 2>&1 || true
-    fi
-}
-trap cleanup EXIT
-
+apply_automation_guard
 STARTED_BY_SCRIPT=1
 START_LOG="$(mktemp -t ghostvm-prep-start.XXXXXX)"
 say "[prep] starting VM via GhostVMHelper (background)"

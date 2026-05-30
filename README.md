@@ -25,6 +25,8 @@ It also includes a **disposable-VM preparation path** for guest automation that 
     - `ghostvm_doctor.sh` — sanity checks + actionable diagnostics
     - `ghostvm_configure_shares.py` — configure RO/RW shared folders by editing `config.json`
     - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network + baseline TCC, including Xcode UI-testing candidates
+    - `ghostvm_guest_tune_automation.py` — offline vanilla macOS tuning for disposable automation snapshots
+    - `ghostvm_automation_guard.py` — temporary GhostVM config/helper-default guard with restore state
     - `ghostvm_guest_bootstrap_xcode_ui_testing.sh` — in-guest root bootstrap for Xcode UI tests (Automation Mode, Developer Tools, first launch)
     - `ghostvm_prepare_headless_automation.sh` — build an `automation-ready` or `xcode-ui-ready` snapshot from a stopped guest image
     - `ghostvm_prepare_xcode_ui_testing.sh` — convenience wrapper for standard Xcode/XCTest UI-testing snapshot prep
@@ -148,7 +150,10 @@ If your VM guest is a fresh macOS install, run:
 ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name>
 
 # for snapshots intended to run Xcode/XCTest macOS UI tests
-ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name> --require-xcode-ui-testing
+ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh \
+  --vm <Name> \
+  --require-ghosttools-prompts-clear \
+  --require-xcode-ui-testing
 ```
 
 See: `ghostvm-safe-testing/references/macos-dev-testing-ready.md`
@@ -163,6 +168,8 @@ The pragmatic path for disposable VMs is:
    - Local Network CIDR exemptions
    - baseline TCC rows for `/usr/bin/osascript`, `/usr/libexec/sshd-keygen-wrapper`, GhostTools, and optional Xcode UI-testing clients/services
    - Safari's **Allow JavaScript from Apple Events** preference for detected guest users
+   - vanilla macOS automation tuning: automatic update downloads/installs off, timed lock suppressed, Time Machine prompts suppressed, Spotlight indexing opt-out marker
+   - host-side GhostVM config guard for prompt-prone shared-folder, networking, port-forward, and helper-default settings
 4. When `--xcode-ui-testing` is used, boot once and run a guest-side bootstrap for `automationmodetool`, Developer Tools, and Xcode first-launch setup.
 5. Create a new snapshot, for example `automation-ready` or `xcode-ui-ready`.
 
@@ -274,6 +281,7 @@ ghostvm-safe-testing/scripts/ghostvm_safe_test.sh \
   --ro /Users/me/src/my-repo \
   --rw /Users/me/.ghostvm-artifacts \
   --timeout 3600 \
+  --keep-running \
   --cmd 'swift test'
 ```
 
@@ -284,8 +292,14 @@ project tree stay guest-local unless the command copies them to the RW share. Fo
 Xcode UI runs, include an explicit copy/`ditto` step for `.artifacts/ui` or the
 latest `.xcresult` into `/Volumes/My Shared Files/<rw-leaf>/...`.
 
-For repeated guest work, pass `--keep-running` to `ghostvm_safe_test.sh` when follow-up commands or inspection are likely. This avoids repeated VM bring-up and shutdown churn; stop the VM explicitly when the session is done.
+For repeated guest work, pass `--keep-running` to `ghostvm_safe_test.sh` when follow-up commands or inspection are likely. This avoids repeated VM bring-up and shutdown churn. The runner prints an `automation_state.json` path; when done, stop and restore with:
 
-Shared folders are persistent VM settings. If a run or manual setup adds session-scoped shares, especially temp or ephemeral host directories, remove those shares or restore the previous settings before wrapping up.
+```bash
+python3 ghostvm-safe-testing/scripts/ghostvm_automation_guard.py restore \
+  --state /path/to/ghostvm-runs/<Name>/<run-id>/automation_state.json \
+  --stop-vm
+```
+
+Shared folders are persistent VM settings. The safe runner restores its pre-run config when it finishes; if manual setup adds session-scoped shares, especially temp or ephemeral host directories, remove those shares or restore the previous settings before wrapping up.
 
 If the doctor or runner reports a missing prerequisite (VM not found, GhostTools unreachable, snapshot missing, `vmctl` wrapper missing), fix it manually and re-run.

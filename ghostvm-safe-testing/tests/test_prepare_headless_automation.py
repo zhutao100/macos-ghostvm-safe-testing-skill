@@ -39,6 +39,11 @@ class TestPrepareHeadlessAutomationScript(unittest.TestCase):
         self.assertNotEqual(i_start, -1, "expected VM start marker")
         self.assertLess(i_seed, i_start)
 
+    def test_guard_applies_before_vm_start_and_snapshot_create(self) -> None:
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("apply_automation_guard\nSTARTED_BY_SCRIPT=1", text)
+        self.assertIn('apply_automation_guard\n    create_snapshot "$SNAPSHOT_NAME"', text)
+
     def test_snapshot_replacement_requires_explicit_flag(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")
         i_guard = text.find("REPLACE_SNAPSHOT -eq 1")

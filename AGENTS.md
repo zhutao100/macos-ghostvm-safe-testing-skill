@@ -11,8 +11,10 @@ Everything else exists to support that skill (scripts, assets, references).
 - `ghostvm-safe-testing/SKILL.md` — primary entrypoint (keep it concise; progressive disclosure)
 - `ghostvm-safe-testing/scripts/` — executable helpers used by agents
   - `ghostvm_doctor.sh` — host + VM sanity checks
-  - `ghostvm_guest_ready.sh` — guest dev-ready checks (CLT, optional Rosetta, optional Xcode UI-testing readiness)
+  - `ghostvm_guest_ready.sh` — guest dev-ready checks (CLT, optional Rosetta, optional GhostTools prompt readiness, optional Xcode UI-testing readiness)
   - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network defaults, Safari JavaScript-from-Apple-Events preference, baseline TCC rows, and Xcode UI-testing TCC candidates
+  - `ghostvm_guest_tune_automation.py` — offline vanilla macOS tuning for disposable automation snapshots (updates, lock timing, Time Machine, Spotlight)
+  - `ghostvm_automation_guard.py` — host-side preflight/apply/restore guard for GhostVM config and helper defaults
   - `ghostvm_guest_bootstrap_xcode_ui_testing.sh` — in-guest root bootstrap for Xcode UI-testing prompts (Automation Mode, Developer Tools, Xcode first launch)
   - `ghostvm_prepare_headless_automation.sh` — revert base snapshot → offline seed → optional priming → create prepared snapshot
   - `ghostvm_prepare_xcode_ui_testing.sh` — convenience wrapper for standard Xcode/XCTest UI-testing snapshot prep
@@ -24,6 +26,7 @@ Everything else exists to support that skill (scripts, assets, references).
 - `ghostvm-safe-testing/references/` — deeper docs for edge cases / troubleshooting
   - `headless-automation-gating.md` — rationale + operational patterns for TCC and Local Network gating
   - `macos-dev-testing-ready.md` — fresh macOS readiness checklist
+  - `automation-tuning.md` — guest tuning and GhostVM host-side guard rationale
   - `troubleshooting.md` — host/guest remediation steps
 - `.agents/skills/update-ghostvm-safe-testing-skill/` — repo-internal skill for keeping this repo in sync with a local GhostVM source checkout
 
@@ -49,6 +52,7 @@ Everything else exists to support that skill (scripts, assets, references).
    - Do not move baseline TCC/Local Network setup back into guest-live instructions unless there is a concrete reason.
    - If a change depends on guest identity, extend `--tcc-client`, `--tcc-bundle-id`, `--appleevent-target`, `--user`, `--xcode-app`, or the references docs.
    - If you add shared folders in VM settings or `config.json`, especially temp/ephemeral host paths, remove them or restore the prior shared-folder settings before wrapping up.
+   - Use `ghostvm_automation_guard.py` for temporary config/default changes instead of hand-editing `config.json` without a restore state.
 
 5. **Be explicit about assumptions**
    - macOS 15+ on Apple Silicon
@@ -59,7 +63,7 @@ Everything else exists to support that skill (scripts, assets, references).
 
 6. **Prefer keeping VMs running when reuse is likely**
    - Use `--keep-running` for safe-test runs that are likely to need follow-up guest commands, log inspection, or iterative UI work.
-   - Stop the VM explicitly when the repeated-use session is done.
+   - Stop the VM explicitly when the repeated-use session is done, then restore the saved automation state before reporting completion.
 
 7. **Error handling policy**
    - Scripts should fail fast with concrete, actionable output.
@@ -82,10 +86,11 @@ python3 -m unittest discover -s ghostvm-safe-testing/tests -p 'test_*.py'
 ghostvm-safe-testing/scripts/ghostvm_doctor.sh --vm <Name>
 
 # dry-run config write
+mkdir -p /tmp/ghostvm-ro-dry-run /tmp/ghostvm-rw-dry-run
 ghostvm-safe-testing/scripts/ghostvm_configure_shares.py \
   --vm <Name> \
-  --ro /tmp \
-  --rw /tmp \
+  --ro /tmp/ghostvm-ro-dry-run \
+  --rw /tmp/ghostvm-rw-dry-run \
   --dry-run
 
 # build a prepared automation snapshot

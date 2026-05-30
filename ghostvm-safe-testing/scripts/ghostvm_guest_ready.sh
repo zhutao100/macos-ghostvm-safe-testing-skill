@@ -4,12 +4,14 @@ set -euo pipefail
 usage() {
     cat <<'USAGE'
 Usage:
-  ghostvm_guest_ready.sh --vm <Name> [--bundle /path/to/<Name>.GhostVM] [--root ~/VMs] [--require-rosetta] [--require-xcode-ui-testing]
+  ghostvm_guest_ready.sh --vm <Name> [--bundle /path/to/<Name>.GhostVM] [--root ~/VMs] [--require-rosetta] [--require-ghosttools-prompts-clear] [--require-xcode-ui-testing]
 
 Checks (inside the guest, via Host API):
   - GhostTools /health
   - Xcode Command Line Tools present (xcode-select -p)
   - (optional) Rosetta present (pkgutil receipt) when --require-rosetta is set
+  - (optional) GhostTools guest setup window prerequisites when
+    --require-ghosttools-prompts-clear is set
   - (optional) Xcode UI testing readiness when --require-xcode-ui-testing is set:
     xcodebuild usable, Automation Mode does not require user authentication,
     and DevToolsSecurity is enabled.
@@ -37,6 +39,7 @@ VM_NAME=""
 BUNDLE_PATH=""
 ROOT_DIR="$HOME/VMs"
 REQUIRE_ROSETTA=0
+REQUIRE_GHOSTTOOLS_PROMPTS_CLEAR=0
 REQUIRE_XCODE_UI_TESTING=0
 
 while [[ $# -gt 0 ]]; do
@@ -55,6 +58,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --require-rosetta)
             REQUIRE_ROSETTA=1
+            shift
+            ;;
+        --require-ghosttools-prompts-clear)
+            REQUIRE_GHOSTTOOLS_PROMPTS_CLEAR=1
             shift
             ;;
         --require-xcode-ui-testing)
@@ -161,6 +168,93 @@ if [[ "$arch" == "arm64" ]]; then
     fi
 else
     say "[SKIP] Rosetta check (guest arch is not arm64)"
+fi
+
+if [[ $REQUIRE_GHOSTTOOLS_PROMPTS_CLEAR -eq 1 ]]; then
+    ghosttools_prompt_check="$(
+        cat <<'GUESTSH'
+set -euo pipefail
+domain="org.ghostvm.com.ghostvm.guest-tools"
+autostart_key="org.ghostvm.ghosttools.autoStartEnabled"
+autoupdate_key="org.ghostvm.ghosttools.autoUpdateEnabled"
+exe="/Applications/GhostTools.app/Contents/MacOS/GhostTools"
+plist="$HOME/Library/LaunchAgents/$domain.plist"
+ls_plist="$HOME/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist"
+missing=0
+
+if [[ -x "$exe" ]]; then
+  echo "[OK] GhostTools is installed in /Applications"
+else
+  echo "[MISSING] GhostTools is not installed at $exe"
+  missing=1
+fi
+
+if [[ "$(/usr/bin/defaults read "$domain" "$autostart_key" 2>/dev/null || true)" == "1" ]]; then
+  echo "[OK] GhostTools auto-start default is enabled"
+else
+  echo "[MISSING] GhostTools auto-start default is not enabled"
+  missing=1
+fi
+
+if [[ "$(/usr/bin/defaults read "$domain" "$autoupdate_key" 2>/dev/null || true)" == "1" ]]; then
+  echo "[OK] GhostTools auto-update default is enabled"
+else
+  echo "[MISSING] GhostTools auto-update default is not enabled"
+  missing=1
+fi
+
+if [[ -f "$plist" ]] &&
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$plist" 2>/dev/null || true)" == "$exe" ]] &&
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :RunAtLoad' "$plist" 2>/dev/null || true)" == "true" ]]; then
+  echo "[OK] GhostTools LaunchAgent points at /Applications"
+else
+  echo "[MISSING] GhostTools LaunchAgent is absent or does not point at /Applications"
+  missing=1
+fi
+
+scheme_handler_ok() {
+  local scheme="$1"
+  [[ -f "$ls_plist" ]] || return 1
+  /usr/bin/plutil -p "$ls_plist" 2>/dev/null | /usr/bin/awk -v scheme="$scheme" -v domain="$domain" '
+    /^  [0-9]+ => \{/ { entry_scheme = 0; entry_handler = 0 }
+    /LSHandlerURLScheme/ && $0 ~ "\"" scheme "\"" { entry_scheme = 1 }
+    /LSHandlerRoleAll/ && $0 ~ domain { entry_handler = 1 }
+    /^  }/ {
+      if (entry_scheme && entry_handler) { found = 1 }
+      entry_scheme = 0
+      entry_handler = 0
+    }
+    END { exit found ? 0 : 1 }
+  '
+}
+
+for scheme in http https; do
+  if scheme_handler_ok "$scheme"; then
+    echo "[OK] GhostTools is default handler for $scheme"
+  else
+    echo "[MISSING] GhostTools is not the default handler for $scheme"
+    missing=1
+  fi
+done
+
+exit "$missing"
+GUESTSH
+    )"
+
+    if ghosttools_prompt_report="$(python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "$ghosttools_prompt_check" 2>&1)"; then
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && say "$line"
+        done <<<"$ghosttools_prompt_report"
+        check_ok "GhostTools setup-window prerequisites are satisfied"
+    else
+        check_warn "GhostTools setup-window prerequisites are incomplete"
+        if [[ -n "$ghosttools_prompt_report" ]]; then
+            printf '%s
+' "$ghosttools_prompt_report" | sed 's/^/  /' >&2
+        fi
+        say "  Fix: inside the disposable guest, run GhostTools from /Applications once, enable Auto Start and Auto Update, set it as the default browser, answer the notification prompt, then snapshot."
+        say "  Note: default-browser readiness prevents GhostTools Setup and URL forwarding prompts; notification authorization may still require one interactive approval on fresh macOS installs."
+    fi
 fi
 
 if [[ $REQUIRE_XCODE_UI_TESTING -eq 1 ]]; then

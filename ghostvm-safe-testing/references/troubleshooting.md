@@ -209,7 +209,10 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_xcode_ui_testing.sh \
 Verify readiness with:
 
 ```bash
-ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name> --require-xcode-ui-testing
+ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh \
+  --vm <Name> \
+  --require-ghosttools-prompts-clear \
+  --require-xcode-ui-testing
 ```
 
 ## Host API / GhostTools issues

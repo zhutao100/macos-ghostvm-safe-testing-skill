@@ -88,7 +88,10 @@ If neither is available, run the bootstrap script manually once inside the guest
 Verify the prepared state with:
 
 ```bash
-ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name> --require-xcode-ui-testing
+ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh \
+  --vm <Name> \
+  --require-ghosttools-prompts-clear \
+  --require-xcode-ui-testing
 ```
 
 ### What not to assume

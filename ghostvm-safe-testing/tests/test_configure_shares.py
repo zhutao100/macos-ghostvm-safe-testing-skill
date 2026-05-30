@@ -62,9 +62,9 @@ class TestConfigureShares(unittest.TestCase):
             self.assertEqual(rw_entry["path"], str(rw.resolve()))
             self.assertFalse(rw_entry["readOnly"])
 
-            # Legacy path is preserved; global read-only is neutralized so it
-            # cannot override per-share writability in older/newer builders.
-            self.assertEqual(updated["sharedFolderPath"], "/legacy")
+            # Legacy path is cleared by default so future fallback logic cannot
+            # resurrect a stale missing shared folder prompt.
+            self.assertIsNone(updated["sharedFolderPath"])
             self.assertFalse(updated["sharedFolderReadOnly"])
 
     def test_dry_run_does_not_write(self) -> None:
@@ -106,6 +106,44 @@ class TestConfigureShares(unittest.TestCase):
             out = json.loads(proc.stdout)
             self.assertIn("sharedFolders", out)
             self.assertEqual(len(out["sharedFolders"]), 2)
+
+    def test_preserve_legacy_flag_keeps_legacy_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bundle = root / "Dev.GhostVM"
+            bundle.mkdir()
+
+            ro = root / "ro-src"
+            rw = root / "rw-out"
+            ro.mkdir()
+            rw.mkdir()
+
+            cfg_path = bundle / "config.json"
+            self._write_json(
+                cfg_path,
+                {"sharedFolderPath": "/legacy", "sharedFolderReadOnly": True},
+            )
+
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--bundle",
+                    str(bundle),
+                    "--ro",
+                    str(ro),
+                    "--rw",
+                    str(rw),
+                    "--preserve-legacy",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+
+            updated = json.loads(cfg_path.read_text(encoding="utf-8"))
+            self.assertEqual(updated["sharedFolderPath"], "/legacy")
+            self.assertFalse(updated["sharedFolderReadOnly"])
 
     def test_rejects_same_leaf_names(self) -> None:
         with tempfile.TemporaryDirectory() as td:

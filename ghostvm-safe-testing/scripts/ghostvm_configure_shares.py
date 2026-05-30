@@ -66,6 +66,14 @@ def main() -> int:
     ap.add_argument(
         "--dry-run", action="store_true", help="Print updated config.json to stdout, do not write"
     )
+    ap.add_argument(
+        "--preserve-legacy",
+        action="store_true",
+        help=(
+            "Keep legacy sharedFolderPath/sharedFolderReadOnly keys. "
+            "Default is to clear them so GhostVM cannot fall back to stale missing paths."
+        ),
+    )
     ns = ap.parse_args()
 
     bundle = _bundle_path(ns.vm, ns.bundle, ns.root)
@@ -107,8 +115,11 @@ def main() -> int:
     else:
         cfg["modifiedAt"] = now.isoformat().replace("+00:00", "Z")
 
-    # Keep legacy config from forcing every share read-only on GhostVM builds
-    # that still consult sharedFolderReadOnly alongside sharedFolders.
+    # GhostVMHelper falls back to legacy sharedFolderPath only when sharedFolders is empty.
+    # Clear stale legacy paths by default so later config edits cannot resurrect a missing-path
+    # "Shared Folder Not Found" prompt. --preserve-legacy is available for diagnostic use.
+    if not ns.preserve_legacy:
+        cfg["sharedFolderPath"] = None
     if "sharedFolderReadOnly" in cfg:
         cfg["sharedFolderReadOnly"] = False
 

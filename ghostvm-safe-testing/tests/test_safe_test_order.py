@@ -11,13 +11,20 @@ class TestSafeTestOrdering(unittest.TestCase):
     def test_snapshot_revert_happens_before_config_edit(self) -> None:
         text = SAFE_TEST_SH.read_text(encoding="utf-8")
         i_revert = text.find("[runner] reverting snapshot")
+        i_guard = text.find("[runner] applying temporary automation guards")
         i_config = text.find("[runner] configuring shared folders")
         self.assertNotEqual(i_revert, -1, "expected revert log marker")
+        self.assertNotEqual(i_guard, -1, "expected guard log marker")
         self.assertNotEqual(i_config, -1, "expected configure log marker")
         self.assertLess(
             i_revert,
+            i_guard,
+            "safe runner must save guard state after snapshot revert",
+        )
+        self.assertLess(
+            i_guard,
             i_config,
-            "safe runner must revert snapshot before editing config.json (snapshots include config.json)",
+            "safe runner must save guard state before editing run-specific shares",
         )
 
     def test_preserves_exit_code_from_host_api_exec(self) -> None:
@@ -50,6 +57,12 @@ class TestSafeTestOrdering(unittest.TestCase):
         text = SAFE_TEST_SH.read_text(encoding="utf-8")
         self.assertIn("[runner] waiting for GhostTools /health", text)
         self.assertIn("GhostTools /health failed after waiting for guest login", text)
+
+    def test_restore_failure_is_not_silently_marked_restored(self) -> None:
+        text = SAFE_TEST_SH.read_text(encoding="utf-8")
+        self.assertIn('if python3 "$GUARD_PY" restore --state "$AUTOMATION_STATE"', text)
+        self.assertIn('say "[runner] error: failed to restore automation state', text)
+        self.assertNotIn("warning: failed to restore automation state", text)
 
 
 if __name__ == "__main__":

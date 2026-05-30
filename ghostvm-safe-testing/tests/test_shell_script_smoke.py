@@ -13,9 +13,25 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 INSTALL_WRAPPER_SH = SCRIPTS_DIR / "install_vmctl_wrapper.sh"
 DOCTOR_SH = SCRIPTS_DIR / "ghostvm_doctor.sh"
 EXEC_SH = SCRIPTS_DIR / "ghostvm_exec.sh"
+GUEST_READY_SH = SCRIPTS_DIR / "ghostvm_guest_ready.sh"
 
 
 class TestShellScriptSmoke(unittest.TestCase):
+    def test_guest_ready_help_includes_ghosttools_prompt_check(self) -> None:
+        proc = subprocess.run(
+            ["bash", str(GUEST_READY_SH), "--help"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn("--require-ghosttools-prompts-clear", proc.stdout)
+
+    def test_guest_ready_launchservices_check_is_order_insensitive(self) -> None:
+        text = GUEST_READY_SH.read_text(encoding="utf-8")
+        self.assertIn("entry_scheme", text)
+        self.assertIn("entry_handler", text)
+        self.assertNotIn("/LSHandlerURLScheme/ { in_entry =", text)
+
     def test_install_vmctl_wrapper_creates_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

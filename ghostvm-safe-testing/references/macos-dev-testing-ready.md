@@ -81,8 +81,13 @@ If the disposable guest has a known sudo password and no passwordless sudo polic
 Then verify:
 
 ```bash
-ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh --vm <Name> --require-xcode-ui-testing
+ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh \
+  --vm <Name> \
+  --require-ghosttools-prompts-clear \
+  --require-xcode-ui-testing
 ```
+
+`--require-ghosttools-prompts-clear` checks the GhostTools setup-window prerequisites that affect UI automation: GhostTools installed in `/Applications`, LaunchAgent/auto-start enabled, GhostTools auto-update enabled, and GhostTools registered as the `http`/`https` default handler. Run GhostTools once interactively to answer the notification permission prompt before snapshotting fresh guests.
 
 ### Rosetta 2 (optional)
 
