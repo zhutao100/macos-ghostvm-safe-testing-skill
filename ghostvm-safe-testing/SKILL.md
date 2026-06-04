@@ -107,6 +107,8 @@ scripts/ghostvm_safe_test.sh \
   --cmd 'swift test'
 ```
 
+Choose a stable `--ro` input. If the source tree contains mutable ignored build outputs such as `.build/`, `.artifacts/`, `DerivedData/`, or other files that may change while the guest is copying the share, stage a clean input directory first, for example with `rsync -a --delete --exclude .build/ --exclude .artifacts/ --exclude .git/ <repo>/ <staged-input>/`, then pass that staged directory as `--ro`.
+
 The runner:
 
 1. Stops any running VM.
@@ -136,6 +138,21 @@ The safe runner prints the Host API socket path and the restore command. For add
 ```bash
 scripts/ghostvm_exec.sh --socket <socket-path> --timeout 600 --argv /bin/zsh -lc '<command>'
 ```
+
+The command runs in the guest-local copy created at run start:
+
+```text
+/Users/Shared/ghostvm-safe-testing/<run-id>/input
+```
+
+Host edits made after `ghostvm_safe_test.sh` starts are not automatically reflected in that copy. For iterative source changes, prefer starting a fresh safe-test run after restoring the previous `automation_state.json`. If you intentionally continue in the kept-running VM, refresh the guest workspace from the read-only share before rebuilding, for example:
+
+```bash
+scripts/ghostvm_exec.sh --socket <socket-path> --timeout 600 --argv /bin/zsh -lc \
+  'rsync -a --delete "/Volumes/My Shared Files/<ro-leaf>/" "/Users/Shared/ghostvm-safe-testing/<run-id>/input/"'
+```
+
+Use the actual mount point and `<ro-leaf>` printed by `ghostvm_safe_test.sh`; if the share view appears stale, restore and start a fresh safe-test run instead of trusting the kept VM copy.
 
 For raw Host API details, load `references/remote-exec.md`.
 
