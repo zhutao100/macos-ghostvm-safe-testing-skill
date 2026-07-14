@@ -53,6 +53,11 @@ input share from inside the guest. If this fails:
    chmod -R a-w /path/to/staged-input
    ```
 
+   `ghostvm_safe_test.sh` restores owner write bits after its initial guest-local
+   copy. If a kept-running workflow later refreshes that workspace with
+   `rsync -a`, follow the refresh with `chmod -R u+w <guest-input>` before
+   rebuilding.
+
 3. Rerun once. Immediately after a VirtioFS mount appears, some host/guest
    combinations can briefly return inconsistent status from the Host API. The
    current runner retries and parses the probe exit code explicitly, but a

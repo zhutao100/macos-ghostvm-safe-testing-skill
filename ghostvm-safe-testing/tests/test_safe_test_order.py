@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 SAFE_TEST_SH = Path(__file__).resolve().parents[1] / "scripts" / "ghostvm_safe_test.sh"
+SKILL_MD = Path(__file__).resolve().parents[1] / "SKILL.md"
 
 
 class TestSafeTestOrdering(unittest.TestCase):
@@ -68,6 +69,21 @@ class TestSafeTestOrdering(unittest.TestCase):
         self.assertNotEqual(i_cd, -1, "expected guest-local working directory")
         self.assertLess(i_copy, i_writable)
         self.assertLess(i_writable, i_cd)
+
+    def test_kept_running_refresh_restores_guest_write_bits(self) -> None:
+        text = SKILL_MD.read_text(encoding="utf-8")
+        i_refresh = text.find('rsync -a --delete "/Volumes/My Shared Files/<ro-leaf>/"')
+        i_writable = text.find(
+            '/bin/chmod -R u+w "/Users/Shared/ghostvm-safe-testing/<run-id>/input"',
+            i_refresh,
+        )
+        self.assertNotEqual(i_refresh, -1, "expected kept-running refresh guidance")
+        self.assertNotEqual(
+            i_writable,
+            -1,
+            "kept-running refresh must restore guest-local owner write bits",
+        )
+        self.assertLess(i_refresh, i_writable)
 
     def test_restore_failure_is_not_silently_marked_restored(self) -> None:
         text = SAFE_TEST_SH.read_text(encoding="utf-8")

@@ -5,7 +5,7 @@ license: MIT
 compatibility: macOS 15+ / macOS 26+ on Apple Silicon with GhostVM.app installed, a prepared .GhostVM bundle, GhostTools running in the guest, and Python 3 on the host.
 metadata:
   author: ghostvm-safe-testing-skill
-  version: "0.4.1"
+  version: "0.4.2"
 ---
 
 # GhostVM safe testing
@@ -149,7 +149,7 @@ Host edits made after `ghostvm_safe_test.sh` starts are not automatically reflec
 
 ```bash
 scripts/ghostvm_exec.sh --socket <socket-path> --timeout 600 --argv /bin/zsh -lc \
-  'rsync -a --delete "/Volumes/My Shared Files/<ro-leaf>/" "/Users/Shared/ghostvm-safe-testing/<run-id>/input/"'
+  'rsync -a --delete "/Volumes/My Shared Files/<ro-leaf>/" "/Users/Shared/ghostvm-safe-testing/<run-id>/input/" && /bin/chmod -R u+w "/Users/Shared/ghostvm-safe-testing/<run-id>/input"'
 ```
 
 Use the actual mount point and `<ro-leaf>` printed by `ghostvm_safe_test.sh`; if the share view appears stale, restore and start a fresh safe-test run instead of trusting the kept VM copy.
