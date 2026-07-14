@@ -285,12 +285,14 @@ ghostvm-safe-testing/scripts/ghostvm_safe_test.sh \
   --cmd 'swift test'
 ```
 
-The runner copies the read-only input into a guest-local workspace before running
-the command. It exports runner logs, exit code, environment notes, and `git.diff`
-to the writable host output path. Command-generated artifacts under the copied
-project tree stay guest-local unless the command copies them to the RW share. For
-Xcode UI runs, include an explicit copy/`ditto` step for `.artifacts/ui` or the
-latest `.xcresult` into `/Volumes/My Shared Files/<rw-leaf>/...`.
+The runner copies the read-only input into a guest-local workspace and restores
+owner write bits on that disposable copy before running the command. This keeps
+builds working even when a staged host input has write bits removed. It exports
+runner logs, exit code, environment notes, and `git.diff` to the writable host
+output path. Command-generated artifacts under the copied project tree stay
+guest-local unless the command copies them to the RW share. For Xcode UI runs,
+include an explicit copy/`ditto` step for `.artifacts/ui` or the latest
+`.xcresult` into `/Volumes/My Shared Files/<rw-leaf>/...`.
 
 For repeated guest work, pass `--keep-running` to `ghostvm_safe_test.sh` when follow-up commands or inspection are likely. This avoids repeated VM bring-up and shutdown churn. The runner prints an `automation_state.json` path; when done, stop and restore with:
 

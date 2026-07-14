@@ -5,7 +5,7 @@ license: MIT
 compatibility: macOS 15+ / macOS 26+ on Apple Silicon with GhostVM.app installed, a prepared .GhostVM bundle, GhostTools running in the guest, and Python 3 on the host.
 metadata:
   author: ghostvm-safe-testing-skill
-  version: "0.4.0"
+  version: "0.4.1"
 ---
 
 # GhostVM safe testing
@@ -122,7 +122,7 @@ The runner:
 5. Starts the VM through GhostVMHelper.
 6. Waits for Host API socket, GhostTools `/health`, remote exec readiness, and VirtioFS mounts.
 7. Verifies RO is not writable and RW is writable from inside the guest.
-8. Runs the command in `/Users/Shared/ghostvm-safe-testing/<run-id>/input`.
+8. Copies the RO input into `/Users/Shared/ghostvm-safe-testing/<run-id>/input`, restores owner write bits on that disposable copy, and runs the command there.
 9. Exports logs, `exit_code`, `sw_vers.txt`, `uname.txt`, and optional git patch files to:
 
 ```text

@@ -522,6 +522,9 @@ print "[guest] cmd=\$CMD"
 # Copy RO input into guest-local workspace.
 /bin/rm -rf "\$INPUT_DIR"
 /usr/bin/ditto "\$RO_VOL" "\$INPUT_DIR"
+# A staged input may intentionally have write bits removed. The guest-local
+# copy is disposable and must remain writable for builds and test artifacts.
+/bin/chmod -R u+w "\$INPUT_DIR"
 
 cd "\$INPUT_DIR"
 

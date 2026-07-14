@@ -58,6 +58,17 @@ class TestSafeTestOrdering(unittest.TestCase):
         self.assertIn("[runner] waiting for GhostTools /health", text)
         self.assertIn("GhostTools /health failed after waiting for guest login", text)
 
+    def test_guest_local_copy_is_made_writable_before_running(self) -> None:
+        text = SAFE_TEST_SH.read_text(encoding="utf-8")
+        i_copy = text.find('/usr/bin/ditto "\\$RO_VOL" "\\$INPUT_DIR"')
+        i_writable = text.find('/bin/chmod -R u+w "\\$INPUT_DIR"')
+        i_cd = text.find('cd "\\$INPUT_DIR"')
+        self.assertNotEqual(i_copy, -1, "expected guest-local input copy")
+        self.assertNotEqual(i_writable, -1, "expected guest-local write-bit normalization")
+        self.assertNotEqual(i_cd, -1, "expected guest-local working directory")
+        self.assertLess(i_copy, i_writable)
+        self.assertLess(i_writable, i_cd)
+
     def test_restore_failure_is_not_silently_marked_restored(self) -> None:
         text = SAFE_TEST_SH.read_text(encoding="utf-8")
         self.assertIn('if python3 "$GUARD_PY" restore --state "$AUTOMATION_STATE"', text)
