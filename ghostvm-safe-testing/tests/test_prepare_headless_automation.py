@@ -117,10 +117,10 @@ class TestPrepareHeadlessAutomationScript(unittest.TestCase):
             self.assertNotIn("delete", recorded)
             self.assertNotIn("stop", recorded)
 
-    def test_waits_for_ghosttools_health_after_socket(self) -> None:
+    def test_waits_for_host_health_after_socket(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("[prep] waiting for GhostTools /health", text)
-        self.assertIn("GhostTools /health failed after waiting for guest login", text)
+        self.assertIn("[prep] waiting for host /health", text)
+        self.assertIn("Host /health failed after waiting for the helper", text)
 
     def test_xcode_ui_testing_forces_bootstrap_before_snapshot(self) -> None:
         text = SCRIPT.read_text(encoding="utf-8")

@@ -2,10 +2,10 @@
 name: ghostvm-safe-testing
 description: Use GhostVM/vmctl to run macOS tests in a disposable VM with snapshot reverts, read-only host inputs, writable artifact export, automation prompt pre-seeding, and host config restoration. Trigger when a task mentions GhostVM, GhostTools, vmctl, macOS VM sandboxing, or safe agentic VM testing.
 license: MIT
-compatibility: macOS 15+ / macOS 26+ on Apple Silicon with GhostVM.app installed, a prepared .GhostVM bundle, GhostTools running in the guest, and Python 3 on the host.
 metadata:
   author: ghostvm-safe-testing-skill
-  version: "0.4.2"
+  version: "0.5.0"
+  compatibility: macOS 15, 26, and 27 on Apple Silicon with GhostVM installed, a prepared .GhostVM bundle, GhostTools running in the guest, and Python 3 on the host.
 ---
 
 # GhostVM safe testing
@@ -15,6 +15,8 @@ metadata:
 Use this skill to run macOS commands/tests inside a GhostVM guest without mutating host inputs.
 
 Default invariants:
+
+Use an owned disposable clone for evaluations; preserve a human user's original VM and saved memory.
 
 1. Revert a known snapshot before the run.
 2. Mount host input read-only and host artifact output writable.
@@ -33,7 +35,7 @@ Default invariants:
 scripts/ghostvm_doctor.sh --vm <Name> --snapshot clean-state
 ```
 
-Use `--no-start` only when you need a static check.
+Use `--no-start` for static inventory checks, including a user's suspended original. Run the normal doctor only against an owned disposable VM. Read [Runtime Compatibility](references/runtime-compatibility.md#clone-a-prepared-snapshot) for cloning a prepared recovery point without reverting the source.
 
 If `vmctl` is missing or is a symlink, install the wrapper:
 
@@ -42,6 +44,8 @@ scripts/install_vmctl_wrapper.sh --ghostvm-app /Applications/GhostVM.app
 ```
 
 GhostVM Host API requires normal helper start. Do not use `vmctl start --headless` for this skill’s remote-exec workflow.
+
+Pin the runtime through a private wrapper directory on `PATH` when multiple GhostVM releases are installed; do not replace the host's default CLI. Read [Runtime Compatibility](references/runtime-compatibility.md) before mixing v2/v3 helpers, guest agents, disk formats, or suspended state. `/health` checks only the host helper; require a successful guest JSON `exitCode`.
 
 ## Prepare an automation-ready snapshot
 
@@ -64,6 +68,7 @@ This performs stopped-VM offline seeding and tuning:
 
 Rules:
 
+- For macOS 27, pass `--user <name> --user-uid <uid>` when selecting an account. Obtain the UID with `id -u` inside the guest, not from the ownership-disabled host mount. The seeder discovers protected TCC containers using their metadata and fails rather than guessing a selected user's UID.
 - If `--snapshot` already exists, choose a new snapshot name.
 - Use `--replace-snapshot` only after explicit user instruction to overwrite that snapshot.
 - Use `--keep-security-responses` only when the user wants Security Responses/system data auto-install to remain unchanged.
@@ -120,10 +125,11 @@ The runner:
    - disables GhostVM helper auto-port-map, clipboard-sync, and URL auto-open defaults for this VM.
 4. Configures RO/RW shared folders and clears stale legacy shared-folder paths.
 5. Starts the VM through GhostVMHelper.
-6. Waits for Host API socket, GhostTools `/health`, remote exec readiness, and VirtioFS mounts.
+6. Waits for Host API socket, host `/health`, successful guest exec, and VirtioFS mounts.
 7. Verifies RO is not writable and RW is writable from inside the guest.
-8. Copies the RO input into `/Users/Shared/ghostvm-safe-testing/<run-id>/input`, restores owner write bits on that disposable copy, and runs the command there.
-9. Exports logs, `exit_code`, `sw_vers.txt`, `uname.txt`, and optional git patch files to:
+8. Launches a detached guest job through a short REST request, copies the RO input into `/Users/Shared/ghostvm-safe-testing/<run-id>/input`, restores owner write bits, and runs the command there.
+9. Polls an atomically published `exit_code` artifact instead of keeping a REST request open. The job deadline stops the VM and restores its guard even with `--keep-running`.
+10. Exports logs, `exit_code`, `sw_vers.txt`, `uname.txt`, and optional git patch files to:
 
 ```text
 <host-output>/ghostvm-runs/<Name>/<run-id>/

@@ -79,6 +79,12 @@ if [[ $# -lt 1 ]]; then
     exit 2
 fi
 
+if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$((10#$TIMEOUT))" -le 0 ]]; then
+    echo "ERROR: --timeout must be a positive integer" >&2
+    exit 2
+fi
+TIMEOUT="$((10#$TIMEOUT))"
+
 if ! command -v python3 >/dev/null 2>&1; then
     echo "ERROR: python3 is required to build/parse JSON for Host API exec." >&2
     echo "ACTION REQUIRED (human): install python3 (Homebrew or Xcode toolchain) or rewrite this script to avoid it." >&2
@@ -141,7 +147,7 @@ trap 'rm -f "$BODY_FILE" "$REQ_FILE"' EXIT
 printf '%s' "$JSON_BODY" >"$REQ_FILE"
 
 HTTP_CODE="$(
-    curl -sS --unix-socket "$SOCKET_PATH" \
+    curl -sS --max-time "$((TIMEOUT + 15))" --unix-socket "$SOCKET_PATH" \
         -o "$BODY_FILE" \
         -w '%{http_code}' \
         -X POST -H 'Content-Type: application/json' \
@@ -172,14 +178,18 @@ except Exception:
     die(f"ERROR: Host API returned non-JSON (HTTP {status}): {raw}", code=1)
 
 if status != 200:
-    err = payload.get("error") or raw or "unknown error"
+    err = (payload.get("error") if isinstance(payload, dict) else None) or raw or "unknown error"
     if status == 408:
         die(f"ERROR: guest exec timed out (HTTP {status}): {err}", code=124)
     die(f"ERROR: Host API exec failed (HTTP {status}): {err}", code=1)
 
-stdout = payload.get("stdout", "") or ""
-stderr = payload.get("stderr", "") or ""
-exit_code = int(payload.get("exitCode", 0) or 0)
+if not isinstance(payload, dict) or type(payload.get("exitCode")) is not int:
+    die("ERROR: guest exec response requires an integer exitCode", code=2)
+stdout = payload.get("stdout", "")
+stderr = payload.get("stderr", "")
+exit_code = payload["exitCode"]
+if not isinstance(stdout, str) or not isinstance(stderr, str):
+    die("ERROR: guest stdout and stderr must be strings", code=2)
 
 if stdout:
     sys.stdout.write(stdout)

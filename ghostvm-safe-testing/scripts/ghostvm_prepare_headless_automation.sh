@@ -10,6 +10,7 @@ Usage:
     [--snapshot <name>] \
     [--cidr <CIDR> ...] \
     [--user <guest-user> ...] \
+    [--user-uid <guest-uid> ...] \
     [--appleevent-target <bundle-id> ...] \
     [--tcc-client </abs/path> ...] \
     [--tcc-bundle-id <bundle-id> ...] \
@@ -143,6 +144,7 @@ SUDO_PASSWORD_ENV="GHOSTVM_GUEST_SUDO_PASSWORD"
 
 CIDRS=()
 USERS=()
+USER_UIDS=()
 APPLEEVENT_TARGETS=()
 TCC_CLIENTS=()
 TCC_BUNDLE_IDS=()
@@ -180,6 +182,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --user)
             USERS+=("$2")
+            shift 2
+            ;;
+        --user-uid)
+            USER_UIDS+=("$2")
             shift 2
             ;;
         --appleevent-target)
@@ -496,6 +502,9 @@ done
 for user in "${USERS[@]}"; do
     seed_args+=(--user "$user")
 done
+for uid in "${USER_UIDS[@]}"; do
+    seed_args+=(--user-uid "$uid")
+done
 for target in "${APPLEEVENT_TARGETS[@]}"; do
     seed_args+=(--appleevent-target "$target")
 done
@@ -645,7 +654,7 @@ if [[ -z "$sock_path" ]]; then
 fi
 
 say "[prep] socket=$sock_path"
-say "[prep] waiting for GhostTools /health"
+say "[prep] waiting for host /health"
 health_ok=0
 last_health_err=""
 deadline=$((SECONDS + 240))
@@ -658,7 +667,7 @@ while [[ $SECONDS -lt $deadline ]]; do
     sleep 2
 done
 if [[ $health_ok -ne 1 ]]; then
-    action_required "GhostTools /health failed after waiting for guest login. Ensure GhostTools is installed + running in the guest. Last error:\n$last_health_err\nSee references/troubleshooting.md"
+    action_required "Host /health failed after waiting for the helper. Check GhostVMHelper and its socket. Last error:\n$last_health_err\nSee references/troubleshooting.md"
 fi
 
 deadline=$((SECONDS + 30))
@@ -669,7 +678,7 @@ while [[ $SECONDS -lt $deadline ]]; do
     sleep 1
 done
 if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/echo ok >/dev/null 2>&1; then
-    action_required "Guest exec is not responding yet (even though /health is OK). Wait for login + GhostTools initialization, then retry. See references/remote-exec.md"
+    action_required "Guest exec is not responding yet (even though host /health is OK). Wait for login + GhostTools initialization, then retry. See references/remote-exec.md"
 fi
 
 shell_quote() {

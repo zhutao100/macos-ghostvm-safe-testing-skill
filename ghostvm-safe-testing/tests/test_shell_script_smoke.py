@@ -26,11 +26,13 @@ class TestShellScriptSmoke(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn("--require-ghosttools-prompts-clear", proc.stdout)
 
-    def test_guest_ready_launchservices_check_is_order_insensitive(self) -> None:
+    def test_guest_ready_uses_native_handler_lookup(self) -> None:
         text = GUEST_READY_SH.read_text(encoding="utf-8")
-        self.assertIn("entry_scheme", text)
-        self.assertIn("entry_handler", text)
-        self.assertNotIn("/LSHandlerURLScheme/ { in_entry =", text)
+        self.assertIn("URLForApplicationToOpenURL", text)
+        self.assertNotIn("com.apple.launchservices.secure.plist", text)
+        self.assertIn("CoreServicesUIAgent UserNotificationCenter", text)
+        self.assertIn("count of windows of process processName", text)
+        self.assertIn('blocking_windows="unknown"', text)
 
     def test_install_vmctl_wrapper_creates_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -187,9 +189,9 @@ class TestShellScriptSmoke(unittest.TestCase):
                 "    ;;\n"
                 "  remote)\n"
                 "    shift\n"
-                "    if [[ ${1:-} == --socket ]]; then\n"
-                "      shift 2\n"
-                "    fi\n"
+                "    while [[ ${1:-} == --socket || ${1:-} == --json ]]; do\n"
+                "      if [[ $1 == --socket ]]; then shift 2; else shift; fi\n"
+                "    done\n"
                 "    sub=${1:-}\n"
                 "    shift || true\n"
                 '    case "$sub" in\n'
@@ -207,6 +209,10 @@ class TestShellScriptSmoke(unittest.TestCase):
                 "        if [[ $n -lt 2 ]]; then\n"
                 "          printf '%s\\n' 'Error: Error Domain=NSPOSIXErrorDomain Code=54 \"Connection reset by peer\"' >&2\n"
                 "          exit 1\n"
+                "        fi\n"
+                "        if [[ $n -eq 2 ]]; then\n"
+                '          printf \'%s\\n\' \'{"exitCode":13,"stdout":"","stderr":"not ready"}\'\n'
+                "          exit 0\n"
                 "        fi\n"
                 '        printf \'%s\\n\' \'{"status":"ok","exitCode":0,"stdout":"","stderr":""}\'\n'
                 "        exit 0\n"
@@ -244,6 +250,7 @@ class TestShellScriptSmoke(unittest.TestCase):
                 timeout=15,
             )
             self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+            self.assertEqual((state_dir / "exec_attempts").read_text(), "3")
 
     def test_exec_builds_json_shell_mode(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -287,7 +294,7 @@ class TestShellScriptSmoke(unittest.TestCase):
                     "--socket",
                     "/tmp/dev.sock",
                     "--timeout",
-                    "123",
+                    "00123",
                     "--",
                     "echo",
                     "hello",
@@ -364,6 +371,55 @@ class TestShellScriptSmoke(unittest.TestCase):
                 ["-lc", 'exec "$@"', "_", "/Volumes/My Shared Files/guest_run.sh"],
             )
             self.assertIn("--flag", req["args"])
+
+    def test_exec_rejects_invalid_timeouts_before_connecting(self) -> None:
+        for value in ("0", "-1", "not-a-number"):
+            with self.subTest(value=value):
+                process = subprocess.run(
+                    [
+                        "bash",
+                        str(EXEC_SH),
+                        "--socket",
+                        "/tmp/unused.sock",
+                        "--timeout",
+                        value,
+                        "--argv",
+                        "/bin/true",
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(process.returncode, 2)
+                self.assertIn("positive integer", process.stderr)
+
+    def test_exec_rejects_missing_guest_exit_code(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bin_dir = Path(directory)
+            curl = bin_dir / "curl"
+            curl.write_text(
+                "#!/bin/bash\n"
+                "while [[ $# -gt 0 ]]; do\n"
+                "  if [[ $1 == -o ]]; then body=$2; shift 2; else shift; fi\n"
+                "done\n"
+                "printf '{}' >\"$body\"\n"
+                "printf 200\n"
+            )
+            curl.chmod(0o755)
+            process = subprocess.run(
+                [
+                    "bash",
+                    str(EXEC_SH),
+                    "--socket",
+                    "/tmp/unused.sock",
+                    "--argv",
+                    "/bin/true",
+                ],
+                env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(process.returncode, 2)
+            self.assertIn("integer exitCode", process.stderr)
 
 
 if __name__ == "__main__":

@@ -60,6 +60,10 @@ Everything else exists to support that skill (scripts, assets, references).
    - `vmctl` available on PATH
    - prepared VM with GhostTools running
    - local VM resources may be documented in `ghostvm-safe-testing/config/local-vms.json`
+   - for macOS 27 protected TCC stores, select the guest UID with `--user-uid`; read `ghostvm-safe-testing/references/runtime-compatibility.md` before changing discovery or cross-version behavior
+   - host `/health` is not guest readiness; require a parsed successful guest `exitCode`
+   - pin v2/v3 selection with a private wrapper directory on `PATH`, not a global CLI replacement
+   - keep long jobs detached with atomic artifact completion; an exec timeout does not override v3's transport idle limit
 
 6. **Prefer keeping VMs running when reuse is likely**
    - Use `--keep-running` for safe-test runs that are likely to need follow-up guest commands, log inspection, or iterative UI work.

@@ -6,6 +6,7 @@ It is written for:
 
 - **macOS Sequoia 15** (and later)
 - **macOS Tahoe 26** (and later)
+- **macOS 27** guests, including protected per-user consent stores
 - Apple silicon hosts/guests
 
 Where possible, prefer baking these steps into a **golden snapshot** (e.g. `clean-state`) so every agent run starts from a known-good baseline.
@@ -26,6 +27,8 @@ In System Settings → General → Software Update → Automatic Updates:
 - Enable the background security/system data updates appropriate for your macOS major version.
 
 (Apple has renamed/tweaked these toggles across 15 → 26; re-check after upgrades.)
+
+Disposable automation images use a different policy: the preparation helper disables update downloads/installs, lock timing, and indexing to keep runs repeatable. Do not apply that policy to the host. See `references/automation-tuning.md`.
 
 ---
 
@@ -78,6 +81,8 @@ ghostvm-safe-testing/scripts/ghostvm_prepare_xcode_ui_testing.sh \
 
 If the disposable guest has a known sudo password and no passwordless sudo policy, pass it through `GHOSTVM_GUEST_SUDO_PASSWORD` for that invocation only. Do not persist guest passwords in repo files.
 
+For macOS 27 selected accounts, also pass `--user-uid <uid>` using `id -u` from inside the guest. Read `references/runtime-compatibility.md` before preparing protected TCC stores or switching v2/v3 runtimes.
+
 Then verify:
 
 ```bash
@@ -87,7 +92,7 @@ ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh \
   --require-xcode-ui-testing
 ```
 
-`--require-ghosttools-prompts-clear` checks the GhostTools setup-window prerequisites that affect UI automation: GhostTools installed in `/Applications`, LaunchAgent/auto-start enabled, GhostTools auto-update enabled, and GhostTools registered as the `http`/`https` default handler. Run GhostTools once interactively to answer the notification permission prompt before snapshotting fresh guests.
+`--require-ghosttools-prompts-clear` checks GhostTools installation, LaunchAgent/auto-start, auto-update, native `http`/`https` application handlers, and absence of CoreServicesUIAgent/UserNotificationCenter windows. Default-browser registration can enqueue multiple dialogs even when both handler lookups already report GhostTools; identity-regenerated clones can also surface guest account alerts. Clear them inside the owned guest, then verify a real XCTest launch and interaction before snapshotting. Run GhostTools once to answer the notification permission prompt on fresh guests.
 
 ### Rosetta 2 (optional)
 

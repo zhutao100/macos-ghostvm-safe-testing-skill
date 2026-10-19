@@ -11,8 +11,8 @@ Checks:
   - VM bundle exists
   - snapshot exists
   - config avoids known GhostVMHelper prompt/failure modes
-  - (optional) VM can be started via GhostVMHelper and GhostTools responds to /health
-  - (optional) remote exec works using an absolute executable path
+  - (optional) VM can be started via GhostVMHelper and the host responds to /health
+  - (optional) guest exec returns a successful JSON exitCode
 
 Exit codes:
   0  OK
@@ -201,16 +201,17 @@ say "[doctor] socket: $sock_path"
 
 # /health
 if ! vmctl remote --socket "$sock_path" health >/dev/null 2>&1; then
-    action_required "Host API reachable, but GhostTools /health failed.\nEnsure GhostTools is installed + running in the guest (Login Items; auto-login recommended).\nSee: ghostvm-safe-testing/references/troubleshooting.md"
+    action_required "Host API /health failed. Check GhostVMHelper and its socket.\nSee: ghostvm-safe-testing/references/troubleshooting.md"
 fi
 
 # exec sanity: use absolute path
 say "[doctor] checking remote exec (may take a few seconds after /health)"
+REMOTE_EXEC_PY="$(dirname "$0")/ghostvm_remote_exec.py"
 deadline=$((SECONDS + 30))
 last_exec_err=""
 while [[ $SECONDS -lt $deadline ]]; do
     set +e
-    exec_out="$(vmctl remote --socket "$sock_path" exec /usr/bin/uname -a 2>&1)"
+    exec_out="$(python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /usr/bin/uname -a 2>&1)"
     rc=$?
     set -e
     if [[ $rc -eq 0 ]]; then
@@ -222,10 +223,10 @@ while [[ $SECONDS -lt $deadline ]]; do
 done
 
 if [[ -n "$last_exec_err" ]]; then
-    action_required "GhostTools /health works, but remote exec failed even with an absolute executable path.\nLast error:\n$last_exec_err\nSee: ghostvm-safe-testing/references/remote-exec.md"
+    action_required "Host /health works, but guest exec did not succeed.\nLast error:\n$last_exec_err\nSee: ghostvm-safe-testing/references/remote-exec.md"
 fi
 
-say "[doctor] ok: remote health + exec"
+say "[doctor] ok: host health + successful guest exec"
 
 if [[ $STARTED_BY_DOCTOR -eq 1 ]]; then
     say "[doctor] stopping VM (doctor started it)"

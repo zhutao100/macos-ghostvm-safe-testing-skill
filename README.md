@@ -13,6 +13,8 @@ It is designed for **LLM agent tools** (Codex CLI, Claude Code, etc.) that need 
 
 It also includes a **disposable-VM preparation path** for guest automation that would otherwise block on **TCC**, **Xcode/XCTest Automation Mode**, Developer Tools, or **Local Network** first-use prompts.
 
+macOS 27 preparation supports UID-selected protected TCC stores. With multiple GhostVM releases, pin the runtime without replacing the global CLI and treat disk-format, saved-memory, and guest-agent compatibility separately. See [Runtime Compatibility](ghostvm-safe-testing/references/runtime-compatibility.md) for verified boundaries and v3 beta transport workarounds.
+
 ## Repo contents
 
 - `ghostvm-safe-testing/` — the skill folder
@@ -138,8 +140,8 @@ Recommendations:
 Example:
 
 ```text
-/Users/me/src/my-repo            (RO)
-/Users/me/.ghostvm-artifacts     (RW)
+$HOME/src/my-repo (RO)
+$HOME/.ghostvm-artifacts (RW)
 ```
 
 ## Optional: verify a fresh guest is dev-ready
@@ -278,8 +280,8 @@ ghostvm-safe-testing/scripts/ghostvm_doctor.sh --vm <Name>
 ghostvm-safe-testing/scripts/ghostvm_safe_test.sh \
   --vm <Name> \
   --snapshot automation-ready \
-  --ro /Users/me/src/my-repo \
-  --rw /Users/me/.ghostvm-artifacts \
+  --ro "$HOME/src/my-repo" \
+  --rw "$HOME/.ghostvm-artifacts" \
   --timeout 3600 \
   --keep-running \
   --cmd 'swift test'

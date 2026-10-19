@@ -28,10 +28,11 @@ class TestSafeTestOrdering(unittest.TestCase):
             "safe runner must save guard state before editing run-specific shares",
         )
 
-    def test_preserves_exit_code_from_host_api_exec(self) -> None:
+    def test_launch_checks_host_api_and_completion_artifact(self) -> None:
         text = SAFE_TEST_SH.read_text(encoding="utf-8")
         self.assertNotIn('if ! "$EXEC_SH"', text)
         self.assertIn('if "$EXEC_SH"', text)
+        self.assertIn('rc="$(<"$HOST_RUN_DIR/exit_code")"', text)
 
     def test_guest_run_script_captures_exit_code_on_failure(self) -> None:
         text = SAFE_TEST_SH.read_text(encoding="utf-8")
@@ -48,7 +49,8 @@ class TestSafeTestOrdering(unittest.TestCase):
         self.assertNotEqual(i_cmd, -1, "expected user command invocation in guest script")
         self.assertIn("set +e", guest[:i_cmd])
         self.assertIn("EXIT_CODE=\\$?", guest[i_cmd : i_cmd + 200])
-        self.assertIn('print "\\$EXIT_CODE" >"\\$RUN_DIR/exit_code"', guest)
+        self.assertIn("trap 'job_exit=\\$?", guest)
+        self.assertIn('/bin/mv -f "\\$RUN_DIR/exit_code.tmp" "\\$RUN_DIR/exit_code"', guest)
 
     def test_safe_runner_detects_virtiofs_mountpoint(self) -> None:
         text = SAFE_TEST_SH.read_text(encoding="utf-8")
@@ -56,8 +58,8 @@ class TestSafeTestOrdering(unittest.TestCase):
 
     def test_safe_runner_waits_for_health_after_socket(self) -> None:
         text = SAFE_TEST_SH.read_text(encoding="utf-8")
-        self.assertIn("[runner] waiting for GhostTools /health", text)
-        self.assertIn("GhostTools /health failed after waiting for guest login", text)
+        self.assertIn("[runner] waiting for host /health", text)
+        self.assertIn("Host /health failed after waiting for the helper", text)
 
     def test_guest_local_copy_is_made_writable_before_running(self) -> None:
         text = SAFE_TEST_SH.read_text(encoding="utf-8")

@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import argparse
 import plistlib
+import re
 import sqlite3
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -125,6 +126,17 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Guest username whose per-user TCC.db should be patched. Repeatable. "
             "Defaults to auto-detected users with an existing TCC.db."
+        ),
+    )
+    ap.add_argument(
+        "--user-uid",
+        action="append",
+        type=int,
+        dest="user_uids",
+        help=(
+            "Guest UID selecting a macOS 27 protected TCC store. Repeatable. "
+            "Obtain with id -u inside the guest; ownership-disabled host mounts "
+            "cannot reliably identify guest account UIDs."
         ),
     )
     ap.add_argument(
@@ -248,14 +260,18 @@ def mounted_data_root(bundle: Path) -> Iterator[Path]:
     disk_image = bundle / "disk.img"
     if not disk_image.exists():
         raise SeedError(f"disk.img not found in bundle: {disk_image}")
+    with disk_image.open("rb") as stream:
+        is_asif = stream.read(4) == b"shdw"
+    attach_cmd = (
+        ["diskutil", "image", "attach", "--plist", "--nobrowse", "--mountOptions", "noowners"]
+        if is_asif
+        else ["hdiutil", "attach", "-plist", "-nobrowse", "-owners", "off"]
+    )
 
     attached_here = False
     entities: list[dict[str, object]] | None = None
     try:
-        attach = run(
-            ["hdiutil", "attach", "-plist", "-nobrowse", "-owners", "off", str(disk_image)],
-            binary=True,
-        )
+        attach = run([*attach_cmd, str(disk_image)], binary=True)
         attached_here = True
         payload = plistlib.loads(attach.stdout)
         entities = payload.get("system-entities", [])
@@ -264,7 +280,7 @@ def mounted_data_root(bundle: Path) -> Iterator[Path]:
             info = plistlib.loads(run(["hdiutil", "info", "-plist"], binary=True).stdout)
         except SeedError as exc:
             raise SeedError(
-                "hdiutil attach failed, and querying existing attachments also failed"
+                "Disk-image attach failed, and querying existing attachments also failed"
             ) from exc
 
         disk_resolved = disk_image.resolve()
@@ -282,47 +298,59 @@ def mounted_data_root(bundle: Path) -> Iterator[Path]:
 
         if entities is None:
             raise
-    dev_entries = [
-        str(entity.get("dev-entry", "")) for entity in entities if entity.get("dev-entry")
-    ]
+    dev_entries = []
+    for entity in entities:
+        if raw_device := entity.get("dev-entry"):
+            name = str(raw_device).removeprefix("/dev/")
+            if not re.fullmatch(r"disk\d+(?:s\d+)*", name):
+                raise SeedError(f"Unexpected disk-image device entry: {raw_device}")
+            dev_entries.append(f"/dev/{name}")
     if not dev_entries:
-        raise SeedError("hdiutil attach did not return any device entries")
+        raise SeedError("Disk-image attach did not return any device entries")
 
-    mountpoints = [
-        Path(str(entity["mount-point"])) for entity in entities if entity.get("mount-point")
-    ]
-    root_device = min(dev_entries, key=len)
-
-    if not mountpoints:
-        for dev in sorted(dev_entries, key=len, reverse=True):
-            info = plistlib.loads(run(["diskutil", "info", "-plist", dev], binary=True).stdout)
-            roles = normalize_role(info.get("APFSVolumeRole"))
-            volume_name = str(info.get("VolumeName", ""))
-            if "Data" in roles or volume_name.endswith(" - Data"):
-                if not info.get("MountPoint"):
-                    run(["diskutil", "mount", "readWrite", dev])
-                    info = plistlib.loads(
-                        run(["diskutil", "info", "-plist", dev], binary=True).stdout
-                    )
-                mount_point = info.get("MountPoint")
-                if mount_point:
-                    mountpoints.append(Path(str(mount_point)))
-
-    data_root = choose_data_mountpoint(mountpoints)
-    if data_root is None:
-        raise SeedError(
-            "Could not identify the guest data volume after mounting disk.img. "
-            "Mount the image manually and rerun with --mounted-root <path>."
-        )
-
-    say(f"[seed] mounted guest data volume at {data_root}")
+    root_device = dev_entries[0]
     try:
+        mountpoints = [
+            Path(str(entity["mount-point"])) for entity in entities if entity.get("mount-point")
+        ]
+        if not mountpoints:
+            for dev in sorted(dev_entries, key=len, reverse=True):
+                info = plistlib.loads(run(["diskutil", "info", "-plist", dev], binary=True).stdout)
+                roles = normalize_role(info.get("APFSVolumeRole"))
+                volume_name = str(info.get("VolumeName", ""))
+                if "Data" in roles or volume_name.endswith(" - Data"):
+                    if not info.get("MountPoint"):
+                        run(["diskutil", "mount", "readWrite", dev])
+                        info = plistlib.loads(
+                            run(["diskutil", "info", "-plist", dev], binary=True).stdout
+                        )
+                    mount_point = info.get("MountPoint")
+                    if mount_point:
+                        mountpoints.append(Path(str(mount_point)))
+
+        data_root = choose_data_mountpoint(mountpoints)
+        if data_root is None:
+            raise SeedError(
+                "Could not identify the guest data volume after mounting disk.img. "
+                "Mount the image manually and rerun with --mounted-root <path>."
+            )
+        say(f"[seed] mounted guest data volume at {data_root}")
         yield data_root
     finally:
-        detach_cmd = ["hdiutil", "detach", root_device]
+        detach_cmd = (
+            ["diskutil", "eject", root_device] if is_asif else ["hdiutil", "detach", root_device]
+        )
         proc = subprocess.run(detach_cmd, capture_output=True, text=True)
         if proc.returncode != 0:
-            proc = subprocess.run([*detach_cmd, "-force"], capture_output=True, text=True)
+            if is_asif:
+                subprocess.run(
+                    ["diskutil", "unmountDisk", "force", root_device],
+                    capture_output=True,
+                    text=True,
+                )
+                proc = subprocess.run(detach_cmd, capture_output=True, text=True)
+            else:
+                proc = subprocess.run([*detach_cmd, "-force"], capture_output=True, text=True)
             if proc.returncode != 0:
                 detail = proc.stderr.strip() or proc.stdout.strip() or f"exit {proc.returncode}"
                 if attached_here:
@@ -535,7 +563,9 @@ def xcode_ui_testing_tcc_candidates(
 
 
 def existing_user_db_paths(
-    data_root: Path, explicit_users: list[str] | None
+    data_root: Path,
+    explicit_users: list[str] | None,
+    user_uids: list[int] | None = None,
 ) -> tuple[list[Path], list[str]]:
     warnings: list[str] = []
     paths: list[Path] = []
@@ -562,12 +592,60 @@ def existing_user_db_paths(
             / "TCC.db"
         )
 
+    if user_uids and any(uid < 0 for uid in user_uids):
+        raise SeedError("--user-uid must be nonnegative")
+
+    protected_root = data_root / "private/var/containers/Data/ProtectedSystem"
+    protected: list[tuple[int, Path]] = []
+    if protected_root.is_dir():
+        for container in sorted(protected_root.iterdir()):
+            metadata = container / ".com.apple.containermanagerd.metadata.plist"
+            db_path = container / "Data/Library/Application Support/com.apple.TCC/TCC.db"
+            if not db_path.is_file() or not metadata.is_file():
+                continue
+            if not all(
+                path.resolve().is_relative_to(data_root.resolve()) for path in (metadata, db_path)
+            ):
+                raise SeedError(f"protected TCC store escapes the guest data volume: {container}")
+            with metadata.open("rb") as stream:
+                info = plistlib.load(stream)
+            if info.get("MCMMetadataIdentifier") != "com.apple.tccd":
+                continue
+            uid = info.get("MCMMetadataOwnership", {}).get("uid")
+            if type(uid) is not int:
+                raise SeedError(f"protected TCC store has no integer owner UID: {container}")
+            protected.append((uid, db_path))
+
+    selected_uids = set(user_uids or [])
+    if explicit_users and protected and not selected_uids:
+        for user in explicit_users:
+            account = data_root / "private/var/db/dslocal/nodes/Default/users" / f"{user}.plist"
+            try:
+                with account.open("rb") as stream:
+                    selected_uids.add(int(plistlib.load(stream)["uid"][0]))
+            except (OSError, KeyError, ValueError, IndexError) as exc:
+                raise SeedError(
+                    f"Cannot resolve guest UID for '{user}'. Pass --user-uid with "
+                    "the value of id -u from inside the guest; do not use host mount ownership."
+                ) from exc
+
+    for uid, db_path in protected:
+        if (selected_uids and uid in selected_uids) or (
+            not explicit_users and not selected_uids and (uid == 0 or uid >= 500)
+        ):
+            paths.append(db_path)
+
+    if selected_uids:
+        missing_uids = selected_uids - {uid for uid, _ in protected}
+        if missing_uids:
+            raise SeedError(f"No protected TCC store found for guest UIDs: {sorted(missing_uids)}")
+
     if explicit_users:
         for name in explicit_users:
             db_path = user_db_for(name)
             if db_path.exists():
                 paths.append(db_path)
-            else:
+            elif not protected:
                 warnings.append(f"requested user '{name}' has no TCC.db at {db_path}")
         return paths, warnings
 
@@ -652,7 +730,7 @@ def values_for_grant(columns: list[str], grant: TCCGrant) -> list[object]:
 
 
 def upsert_tcc_grants(db_path: Path, grants: list[TCCGrant]) -> int:
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
         columns, missing_required = read_access_columns(conn)
         if missing_required:
             missing = ", ".join(missing_required)
@@ -728,6 +806,7 @@ def apply_seed(
     tcc_services: list[str] | None = None,
     xcode_ui_testing: bool = False,
     xcode_apps: list[str] | None = None,
+    user_uids: list[int] | None = None,
 ) -> int:
     say(f"[seed] data_root={data_root}")
     warnings: list[str] = []
@@ -777,7 +856,7 @@ def apply_seed(
         patched = upsert_tcc_grants(system_db, grants)
         say(f"[seed] patched system TCC.db: {system_db} ({patched} grants)")
 
-        user_db_paths, user_warnings = existing_user_db_paths(data_root, users)
+        user_db_paths, user_warnings = existing_user_db_paths(data_root, users, user_uids)
         warnings.extend(user_warnings)
         for db_path in user_db_paths:
             patched = upsert_tcc_grants(db_path, grants)
@@ -827,6 +906,7 @@ def main() -> int:
             tcc_services=tcc_services,
             xcode_ui_testing=xcode_ui_testing,
             xcode_apps=xcode_apps,
+            user_uids=ns.user_uids,
         )
 
     bundle = resolve_existing_path(ns.bundle)
@@ -844,6 +924,7 @@ def main() -> int:
             tcc_services=tcc_services,
             xcode_ui_testing=xcode_ui_testing,
             xcode_apps=xcode_apps,
+            user_uids=ns.user_uids,
         )
 
 

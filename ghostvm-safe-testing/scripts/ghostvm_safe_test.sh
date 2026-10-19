@@ -19,7 +19,7 @@ Workflow:
   3) apply temporary GhostVM host/config automation guards
   4) configure shared folders (RO + RW) by editing <bundle>/config.json
   5) start VM via GhostVMHelper (background)
-  6) wait for Host API socket + GhostTools health
+  6) wait for Host API socket, host health, and successful guest exec
   7) validate RO is actually read-only and RW is writable
   8) copy RO input into guest-local workspace (/Users/Shared/...)
   9) run your command in that workspace
@@ -31,7 +31,8 @@ Outputs:
 
 Notes:
   - `vmctl remote exec` requires an absolute executable path. This script uses /bin/zsh -lc ...
-  - `vmctl remote exec` uses GhostTools' default exec timeout (30s). This script uses Host API exec with an explicit timeout for the long-running guest step.
+  - Long guest jobs run detached and publish an atomic exit_code artifact. Short Host API requests avoid transport idle limits.
+  - --timeout bounds the whole guest job. On expiry, the runner stops the VM and restores its guard even with --keep-running.
   - Prefer --keep-running when follow-up guest commands or inspection are likely.
   - With --keep-running, finish by running ghostvm_automation_guard.py restore --state <run>/automation_state.json --stop-vm.
 USAGE
@@ -112,9 +113,10 @@ done
 [[ -n "$RW_PATH" ]] || action_required "Missing --rw /absolute/host/output"
 [[ -n "$CMD_STR" ]] || action_required "Missing --cmd '<command>'"
 
-if ! [[ "$CMD_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$CMD_TIMEOUT" -le 0 ]]; then
+if ! [[ "$CMD_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$((10#$CMD_TIMEOUT))" -le 0 ]]; then
     action_required "--timeout must be a positive integer (seconds)"
 fi
+CMD_TIMEOUT="$((10#$CMD_TIMEOUT))"
 
 if [[ -z "$BUNDLE_PATH" ]]; then
     [[ -n "$VM_NAME" ]] || action_required "Missing --vm <Name> (or pass --bundle)"
@@ -327,9 +329,8 @@ fi
 
 say "[runner] socket=$sock_path"
 
-# Health check. The Host API socket can appear before the logged-in user's
-# GhostTools instance is ready, especially immediately after snapshot revert.
-say "[runner] waiting for GhostTools /health"
+# Host liveness only; the successful guest exec below is the agent readiness gate.
+say "[runner] waiting for host /health"
 health_ok=0
 last_health_err=""
 deadline=$((SECONDS + 240))
@@ -342,7 +343,7 @@ while [[ $SECONDS -lt $deadline ]]; do
     sleep 2
 done
 if [[ $health_ok -ne 1 ]]; then
-    action_required "GhostTools /health failed after waiting for guest login. Ensure GhostTools is installed + running in the guest. Last error:\n$last_health_err\nSee references/troubleshooting.md"
+    action_required "Host /health failed after waiting for the helper. Check GhostVMHelper and its socket. Last error:\n$last_health_err\nSee references/troubleshooting.md"
 fi
 
 # Validate remote exec is ready (can transiently fail right after /health).
@@ -356,7 +357,7 @@ while [[ $SECONDS -lt $deadline ]]; do
     sleep 1
 done
 if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/echo ok >/dev/null 2>&1; then
-    action_required "Guest exec is not responding yet (even though /health is OK).\nFix: wait for the user session to finish logging in and for GhostTools to fully initialize, then retry.\nSee: references/remote-exec.md"
+    action_required "Guest exec is not responding yet (even though host /health is OK).\nFix: wait for the user session to finish logging in and for GhostTools to fully initialize, then retry.\nSee: references/remote-exec.md"
 fi
 
 # Discover the AppleVirtIOFS mountpoint that hosts shared folders, and wait for
@@ -494,6 +495,7 @@ cat >"$GUEST_RUN_SCRIPT_HOST" <<GUESTSH
 set -euo pipefail
 
 RUN_DIR="\$(cd -- "\$(dirname -- "\$0")" && pwd)"
+trap 'job_exit=\$?; print "\$job_exit" >"\$RUN_DIR/exit_code.tmp"; /bin/mv -f "\$RUN_DIR/exit_code.tmp" "\$RUN_DIR/exit_code"' EXIT
 MOUNT_LINE="\$(/sbin/mount | /usr/bin/grep -m 1 AppleVirtIOFS || true)"
 if [[ -z "\$MOUNT_LINE" ]]; then
   print "[guest] error: AppleVirtIOFS mount not found" >&2
@@ -537,7 +539,6 @@ set +e
 /bin/zsh -lc "\$CMD"
 EXIT_CODE=\$?
 set -e
-print "\$EXIT_CODE" >"\$RUN_DIR/exit_code"
 
 # If git repo, export patch.
 if [[ -d .git ]]; then
@@ -556,12 +557,36 @@ GUEST_RUN_SCRIPT_GUEST="$GUEST_RW/ghostvm-runs/$VM_NAME/$RUN_ID/guest_run.sh"
 # Ensure it is executable in the guest even if host-side permissions didn't propagate.
 python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/chmod +x "$GUEST_RUN_SCRIPT_GUEST" >/dev/null 2>&1 || true
 
-# Run the long guest step via Host API exec so we can set a timeout.
+# Keep the REST request short; v3's guest connection has a fixed idle timeout.
 EXEC_SH="$(dirname "$0")/ghostvm_exec.sh"
-if "$EXEC_SH" --socket "$sock_path" --timeout "$CMD_TIMEOUT" --argv "$GUEST_RUN_SCRIPT_GUEST"; then
+deadline=$((SECONDS + CMD_TIMEOUT))
+# shellcheck disable=SC2016
+if "$EXEC_SH" --socket "$sock_path" --timeout 10 --argv /bin/sh -c \
+    '/usr/bin/nohup /bin/zsh "$1" >"$2" 2>&1 </dev/null &' _ \
+    "$GUEST_RUN_SCRIPT_GUEST" "$GUEST_RW/ghostvm-runs/$VM_NAME/$RUN_ID/launch.log"; then
     :
 else
     rc=$?
+    say "[runner] guest job launch failed (exit=$rc; see logs in $HOST_RUN_DIR)"
+    exit "$rc"
+fi
+
+while [[ ! -f "$HOST_RUN_DIR/exit_code" ]]; do
+    if [[ $SECONDS -ge $deadline ]]; then
+        say "[runner] guest job exceeded ${CMD_TIMEOUT}s; stopping VM"
+        KEEP_RUNNING=0
+        exit 124
+    fi
+    sleep 1
+done
+rc="$(<"$HOST_RUN_DIR/exit_code")"
+if ! [[ "$rc" =~ ^[0-9]{1,3}$ ]] || [[ "$((10#$rc))" -gt 255 ]]; then
+    say "[runner] invalid guest exit_code artifact: $rc"
+    KEEP_RUNNING=0
+    exit 2
+fi
+rc="$((10#$rc))"
+if [[ $rc -ne 0 ]]; then
     say "[runner] guest command failed (exit=$rc; see logs in $HOST_RUN_DIR)"
     exit "$rc"
 fi

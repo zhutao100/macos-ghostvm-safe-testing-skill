@@ -6,7 +6,9 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
+from unittest import mock
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "ghostvm_guest_privacy_seed.py"
 SPEC = importlib.util.spec_from_file_location("ghostvm_guest_privacy_seed", MODULE_PATH)
@@ -17,6 +19,56 @@ SPEC.loader.exec_module(seed)
 
 
 class TestGuestPrivacySeed(unittest.TestCase):
+    def test_mount_uses_format_specific_attach_and_cleanup(self) -> None:
+        for signature, device in ((b"shdw", "disk42"), (b"\0" * 4, "/dev/disk42")):
+            with self.subTest(signature=signature), tempfile.TemporaryDirectory() as directory:
+                bundle = Path(directory)
+                (bundle / "disk.img").write_bytes(signature)
+                root = bundle / "Data"
+                root.mkdir()
+                payload = plistlib.dumps(
+                    {"system-entities": [{"dev-entry": device, "mount-point": str(root)}]}
+                )
+                with (
+                    mock.patch.object(seed.sys, "platform", "darwin"),
+                    mock.patch.object(
+                        seed, "run", return_value=mock.Mock(stdout=payload)
+                    ) as attach,
+                    mock.patch.object(
+                        seed.subprocess, "run", return_value=mock.Mock(returncode=0)
+                    ) as detach,
+                ):
+                    with seed.mounted_data_root(bundle) as mounted:
+                        self.assertEqual(mounted, root)
+                    command = attach.call_args.args[0]
+                    if signature == b"shdw":
+                        self.assertEqual(command[:3], ["diskutil", "image", "attach"])
+                        self.assertIn("noowners", command)
+                        expected_detach = ["diskutil", "eject", "/dev/disk42"]
+                    else:
+                        self.assertEqual(command[:2], ["hdiutil", "attach"])
+                        expected_detach = ["hdiutil", "detach", "/dev/disk42"]
+                    self.assertEqual(detach.call_args.args[0], expected_detach)
+
+    def test_asif_discovery_failure_still_ejects_owned_attachment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = Path(directory)
+            (bundle / "disk.img").write_bytes(b"shdw")
+            payload = plistlib.dumps(
+                {"system-entities": [{"dev-entry": "disk42", "mount-point": "/nonexistent"}]}
+            )
+            with (
+                mock.patch.object(seed.sys, "platform", "darwin"),
+                mock.patch.object(seed, "run", return_value=mock.Mock(stdout=payload)),
+                mock.patch.object(
+                    seed.subprocess, "run", return_value=mock.Mock(returncode=0)
+                ) as detach,
+            ):
+                with self.assertRaisesRegex(seed.SeedError, "Could not identify"):
+                    with seed.mounted_data_root(bundle):
+                        self.fail("missing data volume must not be yielded")
+                self.assertEqual(detach.call_args.args[0], ["diskutil", "eject", "/dev/disk42"])
+
     def test_write_local_network_defaults_merges_existing_values(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             data_root = Path(td)
@@ -91,7 +143,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
                 "kTCCServiceAppleEvents",
             }
             for db_path in (system_db, user_db):
-                with sqlite3.connect(db_path) as conn:
+                with closing(sqlite3.connect(db_path)) as conn, conn:
                     rows = conn.execute(
                         "SELECT service, client, indirect_object_identifier FROM access ORDER BY service, indirect_object_identifier"
                     ).fetchall()
@@ -227,7 +279,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
             )
             self.assertEqual(rc, 0)
 
-            with sqlite3.connect(system_db) as conn:
+            with closing(sqlite3.connect(system_db)) as conn, conn:
                 rows = conn.execute("SELECT service, client, client_type FROM access").fetchall()
 
             self.assertIn(("kTCCServiceDeveloperTool", "com.apple.dt.Xcode", 0), rows)
@@ -273,7 +325,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
             )
             self.assertEqual(rc, 0)
 
-            with sqlite3.connect(system_db) as conn:
+            with closing(sqlite3.connect(system_db)) as conn, conn:
                 services = {row[0] for row in conn.execute("SELECT service FROM access").fetchall()}
 
             self.assertEqual(
@@ -320,7 +372,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             db_path = Path(td) / "TCC.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 conn.execute(
                     "CREATE TABLE access ("
                     "service TEXT NOT NULL, "
@@ -344,7 +396,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
             patched = seed.upsert_tcc_grants(db_path, grants)
             self.assertEqual(patched, 4)
 
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 rows = conn.execute(
                     "SELECT service, client, allowed, prompt_count, indirect_object_identifier FROM access"
                 ).fetchall()
@@ -360,7 +412,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             db_path = Path(td) / "TCC.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 conn.execute(
                     "CREATE TABLE access ("
                     "service TEXT NOT NULL, "
@@ -389,7 +441,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
             patched = seed.upsert_tcc_grants(db_path, grants)
             self.assertEqual(patched, 4)
 
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 rows = conn.execute("SELECT unknown_column FROM access").fetchall()
             self.assertEqual([row[0] for row in rows], [None] * 4)
 
@@ -397,7 +449,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             db_path = Path(td) / "TCC.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 conn.execute(
                     "CREATE TABLE access ("
                     "service TEXT NOT NULL, "
@@ -426,6 +478,87 @@ class TestGuestPrivacySeed(unittest.TestCase):
             with self.assertRaises(seed.SeedError):
                 seed.upsert_tcc_grants(db_path, grants)
 
+    def test_protected_stores_are_selected_by_metadata_uid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            selected = self._make_protected_store(root, "selected", 501)
+            self._make_protected_store(root, "other-user", 502)
+            self._make_protected_store(root, "daemon", 248)
+            paths, warnings = seed.existing_user_db_paths(root, ["agent"], [501])
+            self.assertEqual(paths, [selected])
+            self.assertEqual(warnings, [])
+
+    def test_protected_store_autodetection_excludes_daemon_accounts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            selected = self._make_protected_store(root, "selected", 501)
+            self._make_protected_store(root, "daemon", 248)
+            paths, warnings = seed.existing_user_db_paths(root, None)
+            self.assertEqual(paths, [selected])
+            self.assertEqual(warnings, [])
+
+    def test_protected_store_resolves_uid_from_guest_account_record(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            selected = self._make_protected_store(root, "selected", 502)
+            account = root / "private/var/db/dslocal/nodes/Default/users/agent.plist"
+            account.parent.mkdir(parents=True)
+            with account.open("wb") as stream:
+                plistlib.dump({"uid": ["502"]}, stream)
+            paths, _ = seed.existing_user_db_paths(root, ["agent"])
+            self.assertEqual(paths, [selected])
+
+    def test_protected_store_does_not_guess_uid_from_host_ownership(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._make_protected_store(root, "selected", 501)
+            with self.assertRaisesRegex(seed.SeedError, "Pass --user-uid"):
+                seed.existing_user_db_paths(root, ["agent"])
+            with self.assertRaisesRegex(seed.SeedError, "No protected TCC store"):
+                seed.existing_user_db_paths(root, ["agent"], [999])
+
+    def test_new_defaulted_tcc_column_is_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            db = Path(directory) / "TCC.db"
+            self._make_modern_tcc_db(db)
+            with closing(sqlite3.connect(db)) as connection, connection:
+                connection.execute(
+                    "ALTER TABLE access ADD COLUMN reminder_count INTEGER NOT NULL DEFAULT 0"
+                )
+            seed.upsert_tcc_grants(
+                db, [seed.TCCGrant("kTCCServiceAccessibility", "/usr/bin/osascript")]
+            )
+            with closing(sqlite3.connect(db)) as connection, connection:
+                self.assertEqual(
+                    connection.execute("SELECT reminder_count FROM access").fetchone(), (0,)
+                )
+
+    def test_seed_closes_database_before_image_detach(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            db = Path(directory) / "TCC.db"
+            self._make_modern_tcc_db(db)
+            connection = sqlite3.connect(db)
+            with mock.patch.object(seed.sqlite3, "connect", return_value=connection):
+                seed.upsert_tcc_grants(
+                    db, [seed.TCCGrant("kTCCServiceAccessibility", "/usr/bin/osascript")]
+                )
+            with self.assertRaisesRegex(sqlite3.ProgrammingError, "closed"):
+                connection.execute("SELECT 1")
+
+    def _make_protected_store(self, root: Path, name: str, uid: int) -> Path:
+        container = root / "private/var/containers/Data/ProtectedSystem" / name
+        db = container / "Data/Library/Application Support/com.apple.TCC/TCC.db"
+        self._make_modern_tcc_db(db)
+        with (container / ".com.apple.containermanagerd.metadata.plist").open("wb") as stream:
+            plistlib.dump(
+                {
+                    "MCMMetadataIdentifier": "com.apple.tccd",
+                    "MCMMetadataOwnership": {"uid": uid},
+                },
+                stream,
+            )
+        return db
+
     @staticmethod
     def _write_bundle(path: Path, bundle_id: str, executable: str) -> None:
         contents = path / "Contents"
@@ -438,7 +571,7 @@ class TestGuestPrivacySeed(unittest.TestCase):
     @staticmethod
     def _make_modern_tcc_db(path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(path) as conn:
+        with closing(sqlite3.connect(path)) as conn, conn:
             conn.execute(
                 "CREATE TABLE access ("
                 "service TEXT NOT NULL, "

@@ -1,5 +1,9 @@
 # Remote exec troubleshooting (`vmctl remote ... exec`)
 
+## Transport Limits
+
+Read [Runtime Compatibility](runtime-compatibility.md#transport-checks) before diagnosing v3 failures: both releases can block on large REST output, and v3 can fail after 30 silent seconds despite a longer command deadline. Use `ghostvm_safe_test.sh` for long jobs; it launches briefly and polls an atomic completion artifact. `/health` is host liveness, not successful guest execution.
+
 ## Symptom
 
 - `vmctl remote --name <Name> health` works.

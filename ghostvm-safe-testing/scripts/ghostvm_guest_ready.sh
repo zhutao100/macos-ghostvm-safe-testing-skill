@@ -7,7 +7,7 @@ Usage:
   ghostvm_guest_ready.sh --vm <Name> [--bundle /path/to/<Name>.GhostVM] [--root ~/VMs] [--require-rosetta] [--require-ghosttools-prompts-clear] [--require-xcode-ui-testing]
 
 Checks (inside the guest, via Host API):
-  - GhostTools /health
+  - Host helper /health followed by successful guest commands
   - Xcode Command Line Tools present (xcode-select -p)
   - (optional) Rosetta present (pkgutil receipt) when --require-rosetta is set
   - (optional) GhostTools guest setup window prerequisites when
@@ -120,7 +120,7 @@ say "[guest-ready] vm=$VM_NAME"
 say "[guest-ready] socket=$sock_path"
 
 if ! vmctl remote --socket "$sock_path" health >/dev/null 2>&1; then
-    action_required "Host API reachable, but GhostTools /health failed.\nEnsure GhostTools is installed + running in the guest (auto-login + Login Items)."
+    action_required "Host API /health failed. Check GhostVMHelper and its socket."
 fi
 
 REMOTE_EXEC_PY="$(dirname "$0")/ghostvm_remote_exec.py"
@@ -179,7 +179,6 @@ autostart_key="org.ghostvm.ghosttools.autoStartEnabled"
 autoupdate_key="org.ghostvm.ghosttools.autoUpdateEnabled"
 exe="/Applications/GhostTools.app/Contents/MacOS/GhostTools"
 plist="$HOME/Library/LaunchAgents/$domain.plist"
-ls_plist="$HOME/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist"
 missing=0
 
 if [[ -x "$exe" ]]; then
@@ -214,18 +213,16 @@ fi
 
 scheme_handler_ok() {
   local scheme="$1"
-  [[ -f "$ls_plist" ]] || return 1
-  /usr/bin/plutil -p "$ls_plist" 2>/dev/null | /usr/bin/awk -v scheme="$scheme" -v domain="$domain" '
-    /^  [0-9]+ => \{/ { entry_scheme = 0; entry_handler = 0 }
-    /LSHandlerURLScheme/ && $0 ~ "\"" scheme "\"" { entry_scheme = 1 }
-    /LSHandlerRoleAll/ && $0 ~ domain { entry_handler = 1 }
-    /^  }/ {
-      if (entry_scheme && entry_handler) { found = 1 }
-      entry_scheme = 0
-      entry_handler = 0
+  local handler
+  handler="$(/usr/bin/osascript -l JavaScript -e '
+    function run(argv) {
+      ObjC.import("AppKit");
+      var url = $.NSURL.URLWithString(argv[0] + "://ghostvm.invalid/");
+      var app = $.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL(url);
+      return ObjC.unwrap($.NSBundle.bundleWithURL(app).bundleIdentifier);
     }
-    END { exit found ? 0 : 1 }
-  '
+  ' "$scheme" 2>/dev/null)" || return 1
+  [[ "$handler" == "$domain" ]]
 }
 
 for scheme in http https; do
@@ -233,6 +230,26 @@ for scheme in http https; do
     echo "[OK] GhostTools is default handler for $scheme"
   else
     echo "[MISSING] GhostTools is not the default handler for $scheme"
+    missing=1
+  fi
+done
+
+for consent_process in CoreServicesUIAgent UserNotificationCenter; do
+  blocking_windows="$(/usr/bin/osascript -e '
+    on run argv
+      set processName to item 1 of argv
+      tell application "System Events"
+        if exists process processName then
+          return count of windows of process processName
+        end if
+        return 0
+      end tell
+    end run
+  ' "$consent_process" 2>/dev/null)" || blocking_windows="unknown"
+  if [[ "$blocking_windows" == "0" ]]; then
+    echo "[OK] No $consent_process consent/account windows remain"
+  else
+    echo "[MISSING] $consent_process windows: $blocking_windows; inspect the guest before UI tests"
     missing=1
   fi
 done
@@ -245,13 +262,13 @@ GUESTSH
         while IFS= read -r line; do
             [[ -n "$line" ]] && say "$line"
         done <<<"$ghosttools_prompt_report"
-        check_ok "GhostTools setup-window prerequisites are satisfied"
+        check_ok "GhostTools setup and system-alert prerequisites are satisfied"
     else
-        check_warn "GhostTools setup-window prerequisites are incomplete"
+        check_warn "GhostTools setup or system-alert prerequisites are incomplete"
         if [[ -n "$ghosttools_prompt_report" ]]; then
-            printf '%s
-' "$ghosttools_prompt_report" | sed 's/^/  /' >&2
+            printf '%s\n' "$ghosttools_prompt_report" | sed 's/^/  /' >&2
         fi
+        say "  Inspect CoreServicesUIAgent and UserNotificationCenter inside the disposable guest; resolve or defer blocking browser/account alerts before UI tests."
         say "  Fix: inside the disposable guest, run GhostTools from /Applications once, enable Auto Start and Auto Update, set it as the default browser, answer the notification prompt, then snapshot."
         say "  Note: default-browser readiness prevents GhostTools Setup and URL forwarding prompts; notification authorization may still require one interactive approval on fresh macOS installs."
     fi

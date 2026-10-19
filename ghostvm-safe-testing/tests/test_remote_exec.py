@@ -121,6 +121,30 @@ class TestRemoteExec(unittest.TestCase):
 
         self.assertEqual(rc, 42)
 
+    def test_invalid_guest_result_is_not_success(self) -> None:
+        for payload in (
+            "{}",
+            "[]",
+            '{"exitCode":null}',
+            '{"exitCode":true}',
+            '{"exitCode":"0"}',
+            '{"exitCode":0,"stdout":[]}',
+        ):
+            with self.subTest(payload=payload):
+                mod = load_module()
+                cp = subprocess.CompletedProcess([], 0, stdout=payload, stderr="")
+                with (
+                    mock.patch.object(mod.subprocess, "run", return_value=cp),
+                    mock.patch.object(
+                        sys,
+                        "argv",
+                        ["ghostvm_remote_exec.py", "--name", "dev", "/bin/true"],
+                    ),
+                    redirect_stdout(io.StringIO()),
+                    redirect_stderr(io.StringIO()),
+                ):
+                    self.assertEqual(mod.main(), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

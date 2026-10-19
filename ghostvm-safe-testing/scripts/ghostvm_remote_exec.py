@@ -54,8 +54,14 @@ def main() -> int:
         sys.stderr.write(proc.stderr)
         return 2
 
+    if not isinstance(payload, dict) or type(payload.get("exitCode")) is not int:
+        sys.stderr.write("error: guest exec response requires an integer exitCode\n")
+        return 2
     out = payload.get("stdout", "")
     err = payload.get("stderr", "")
+    if not isinstance(out, str) or not isinstance(err, str):
+        sys.stderr.write("error: guest stdout and stderr must be strings\n")
+        return 2
     if out:
         sys.stdout.write(out)
         if not out.endswith("\n"):
@@ -65,8 +71,7 @@ def main() -> int:
         if not err.endswith("\n"):
             sys.stderr.write("\n")
 
-    exit_code = int(payload.get("exitCode", 0) or 0)
-    return exit_code
+    return payload["exitCode"]
 
 
 if __name__ == "__main__":
