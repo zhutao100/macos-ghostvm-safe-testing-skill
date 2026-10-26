@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "validated_on": "2026-10-26",
+  "skill_version": "0.5.1",
+  "host": {
+    "macos": "26.7.1",
+    "build": "25G241",
+    "architecture": "arm64",
+    "python": "3.14.8"
+  },
+  "host_checks": {
+    "command": "python3 tools/check.py",
+    "unit_tests_passed": 79,
+    "unit_tests_failed": 0,
+    "shell_syntax": "Every shell helper checked individually",
+    "python_syntax": "All Python helpers and the check tool",
+    "skill_metadata": "skill-creator quick_validate.py passed",
+    "cli_help": [
+      "ghostvm_remote_exec.py",
+      "ghostvm_doctor.sh",
+      "ghostvm_guest_ready.sh",
+      "ghostvm_prepare_headless_automation.sh",
+      "ghostvm_safe_test.sh",
+      "tools/check.py"
+    ],
+    "boundary": "Mocked host tests do not certify guest Apple frameworks"
+  },
+  "native_protocol": {
+    "target": "Disposable clones of the published automation-ready snapshots",
+    "resources_per_guest": {
+      "cpus": 4,
+      "memory_gib": 12
+    },
+    "input": "Read-only host share copied into guest-local storage",
+    "output": "Writable artifact share; build and result databases remain guest-local until export",
+    "fixture": "Dependency-free SwiftUI macOS app with one XCTest",
+    "assertions": [
+      "Launch the app",
+      "Read accessibility counter value 0",
+      "Click Increment",
+      "Read accessibility counter value 1",
+      "Terminate the app"
+    ],
+    "evidence": [
+      "Guest command logs and real completion status",
+      "Exported xcresult bundle",
+      "xcresulttool test-results summary",
+      "XCTest screenshot attachment",
+      "Guest readiness and automation guard restoration reports"
+    ],
+    "screenshots_visually_inspected": false,
+    "required_readiness_request_guest_deadline_seconds": 120,
+    "required_readiness_request_host_deadline_seconds": 135,
+    "cold_readiness_timing_definition": "Readiness script wall time after the safe runner establishes guest exec; excludes boot",
+    "timing_definition": "xcresult summary finishTime minus startTime; not total boot/build duration"
+  },
+  "environments": [
+    {
+      "macos": "15.6.1",
+      "build": "24G90",
+      "disk_format": "RAW",
+      "xcode": "26.3",
+      "xcode_build": "17C529",
+      "ghostvm": "2.11.0",
+      "ghosttools": "2.11.0",
+      "python": "3.14.4",
+      "python_distribution": "Homebrew",
+      "repair": "Clear stale suspended metadata in the prepared snapshot; no guest disk repair needed",
+      "published_snapshot": "automation-ready",
+      "functional_python": "passed",
+      "xcode_ui_test": {
+        "passed": 1,
+        "failed": 0,
+        "session_seconds": 18.542
+      },
+      "unattended_prompt_readiness": "passed",
+      "cold_readiness_wall_seconds": 6.33
+    },
+    {
+      "macos": "26.2",
+      "build": "25C56",
+      "disk_format": "RAW",
+      "xcode": "26.4",
+      "xcode_build": "17E192",
+      "ghostvm": "2.11.0",
+      "ghosttools": "2.11.0",
+      "python": "3.14.9",
+      "python_distribution": "Python.org universal2 framework",
+      "python_login_path": "/Library/Frameworks/Python.framework/Versions/3.14/bin",
+      "repair": "Replace selection of the incompatible brewed interpreter with a signed compatible framework distribution; configure both login shells and install its certificate bundle",
+      "published_snapshot": "automation-ready",
+      "functional_python": "passed",
+      "https_trust": {
+        "ca_certificates": 118,
+        "verified_https_status": 200
+      },
+      "xcode_ui_test": {
+        "passed": 1,
+        "failed": 0,
+        "session_seconds": 215.356
+      },
+      "unattended_prompt_readiness": "passed",
+      "cold_readiness_wall_seconds": 61.01,
+      "observations": [
+        "Additional cold checks exceeded the default 30-second guest deadline and initially misreported installed tools as missing; required checks now send explicit guest deadlines, require tool output, and retain request diagnostics"
+      ],
+      "limitations": [
+        "The cached macOS 26.7.1 installer did not upgrade this guest; the verified OS remains 26.2",
+        "The unlinked Homebrew Python 3.14.4 framework remains as an existing dependency and is not certified; its expat compatibility failure is not repaired in place"
+      ]
+    },
+    {
+      "macos": "27.0.1",
+      "build": "26A434",
+      "disk_format": "RAW",
+      "xcode": "27.1",
+      "xcode_build": "27A9275",
+      "ghostvm": "2.11.0",
+      "ghosttools": "2.11.0",
+      "python": "3.14.8",
+      "python_distribution": "Homebrew",
+      "python_login_path": "/opt/homebrew/opt/python@3.14/libexec/bin",
+      "repair": "Select the functional versioned Python in existing zsh and bash login profiles instead of Xcode Python 3.9",
+      "published_snapshot": "automation-ready",
+      "functional_python": "passed",
+      "xcode_ui_test": {
+        "passed": 1,
+        "failed": 0,
+        "session_seconds": 23.955
+      },
+      "unattended_prompt_readiness": "passed",
+      "cold_readiness_wall_seconds": 9.34,
+      "observations": [
+        "Additional cold readiness probes returned no Automation Mode/Xcode status with the default deadline; required checks now send explicit guest deadlines and retain failed-request diagnostics"
+      ]
+    },
+    {
+      "macos": "27.0.1",
+      "build": "26A434",
+      "disk_format": "ASIF",
+      "xcode": "27.1",
+      "xcode_build": "27A9275",
+      "ghostvm": "3.0.20260601003045",
+      "ghosttools": "3.0.20260601003045",
+      "python": "3.14.8",
+      "python_distribution": "Homebrew",
+      "python_login_path": "/opt/homebrew/opt/python@3.14/libexec/bin",
+      "repair": "Select versioned Python in the existing account's zsh and bash login profiles; preserve its original profile",
+      "published_snapshot": "automation-ready",
+      "functional_python": "passed",
+      "xcode_ui_test": {
+        "passed": 1,
+        "failed": 0,
+        "session_seconds": 29.815
+      },
+      "unattended_prompt_readiness": "blocked",
+      "cold_readiness_wall_seconds": 4.44,
+      "readiness_exit_code": 1,
+      "limitations": [
+        "A recurring personal Apple Account reminder leaves one UserNotificationCenter window; native app interaction passed but unattended prompt readiness did not",
+        "Account/profile provisioning experiments and temporary SSH changes were discarded before the scoped Python repair; no new account is part of the published snapshot",
+        "Saved-memory compatibility between GhostVM releases was not tested"
+      ]
+    }
+  ],
+  "native_regression": {
+    "scenario": "Successful detached guest launch with its transport acknowledgement replaced by curl status 28",
+    "expected_guest_exit_code": 37,
+    "actual_runner_exit_code": 37,
+    "launch_count": 1,
+    "relaunched": false,
+    "vm_stopped": true,
+    "guard_restored": true
+  },
+  "preservation": {
+    "original_current_disks_configs_and_saved_memory": "Unchanged",
+    "originals_booted_or_reverted": false,
+    "original_states": [
+      "macOS 15 stopped",
+      "macOS 26 stopped",
+      "macOS 27 RAW suspended",
+      "macOS 27 ASIF suspended"
+    ],
+    "verification": "SHA256 for small files including configs and auxiliary storage; size, modification time, and inode for current disk and saved-memory files; unrelated snapshots compared against the baseline",
+    "full_disk_and_memory_hashes_taken": false,
+    "previous_prepared_snapshots": "Retained outside active snapshot discovery",
+    "published_resources_and_persistent_share_policy": "Preserved from each original prepared snapshot",
+    "owned_guests": "Stopped and temporary automation configuration restored"
+  },
+  "reusable_cache": [
+    {
+      "relative_path": "iOS-Simulator-Runtimes/iOS-18.5-22F77-arm64-Simulator-Runtime.dmg",
+      "bytes": 9128936960,
+      "sha256": "d3812129d39408169bd09b3426641567036579ec3a1739d0bce5345e3f154c7e",
+      "verification": "Source and cache copy matched"
+    },
+    {
+      "relative_path": "iOS-Simulator-Runtimes/iOS-27.1-24A94425-arm64-Simulator-Runtime/Restore/043-77717-424.dmg",
+      "bytes": 7874743137,
+      "sha256": "fd311be2d5d376f5174318b72808e319f012d1b75251a3d973b55598776c2a8d",
+      "verification": "Source and cache copy matched; surrounding Restore metadata and firmware preserved"
+    },
+    {
+      "relative_path": "Python/Python-3.14.9-macOS-universal2.pkg",
+      "bytes": 75804332,
+      "sha256": "08e312f20844b524c2f8c5e5b2e7f49608c22e8c7cb194f5834d385c94383462",
+      "verification": "Official release checksum, trusted package signature, and cache copy checksum matched"
+    }
+  ],
+  "scope_limits": [
+    "This verifies GhostVM transport, snapshot maintenance, functional Python, and one macOS UI interaction, not every application or simulator runtime",
+    "Rosetta is optional and was not required for these arm64 checks",
+    "A screenshot attachment and a valid result bundle are not claims of visual inspection",
+    "An unrelated account alert is retained as a failed prerequisite, not reclassified as a successful unattended check"
+  ]
+}

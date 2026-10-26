@@ -314,6 +314,7 @@ while [[ $SECONDS -lt $deadline ]]; do
     if sock_path="$(vmctl socket "$BUNDLE_PATH" 2>/dev/null)"; then
         break
     fi
+    sock_path=""
     if ! /bin/kill -0 "$START_PID" 2>/dev/null; then
         # vmctl start exited early (usually helper discovery / launch failure)
         break
@@ -349,15 +350,8 @@ fi
 # Validate remote exec is ready (can transiently fail right after /health).
 REMOTE_EXEC_PY="$(dirname "$0")/ghostvm_remote_exec.py"
 say "[runner] waiting for guest exec to be ready"
-deadline=$((SECONDS + 30))
-while [[ $SECONDS -lt $deadline ]]; do
-    if python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/echo ok >/dev/null 2>&1; then
-        break
-    fi
-    sleep 1
-done
-if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/echo ok >/dev/null 2>&1; then
-    action_required "Guest exec is not responding yet (even though host /health is OK).\nFix: wait for the user session to finish logging in and for GhostTools to fully initialize, then retry.\nSee: references/remote-exec.md"
+if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" --wait-ready "${GHOSTVM_READY_TIMEOUT:-120}"; then
+    action_required "Guest exec is not responding yet (even though host /health is OK). Wait for login and GhostTools initialization, then retry.\nSee: references/remote-exec.md"
 fi
 
 # Discover the AppleVirtIOFS mountpoint that hosts shared folders, and wait for
@@ -513,6 +507,8 @@ CMD="\$(/bin/cat "\$CMD_FILE")"
 
 mkdir -p "\$WORK_BASE"
 mkdir -p "\$RUN_DIR"
+print "\$\$" >"\$RUN_DIR/job_started.tmp"
+/bin/mv -f "\$RUN_DIR/job_started.tmp" "\$RUN_DIR/job_started"
 
 exec >"\$RUN_DIR/stdout.log" 2>"\$RUN_DIR/stderr.log"
 
@@ -567,8 +563,21 @@ if "$EXEC_SH" --socket "$sock_path" --timeout 10 --argv /bin/sh -c \
     :
 else
     rc=$?
-    say "[runner] guest job launch failed (exit=$rc; see logs in $HOST_RUN_DIR)"
-    exit "$rc"
+    say "[runner] launch acknowledgement failed (exit=$rc); checking job artifacts without relaunching"
+    launch_deadline=$((SECONDS + 30))
+    [[ $launch_deadline -le $deadline ]] || launch_deadline=$deadline
+    while [[ ! -f "$HOST_RUN_DIR/job_started" && ! -f "$HOST_RUN_DIR/exit_code" ]]; do
+        if [[ $SECONDS -ge $launch_deadline ]]; then
+            KEEP_RUNNING=0
+            if [[ $SECONDS -ge $deadline ]]; then
+                say "[runner] guest job deadline expired; stopping VM"
+                exit 124
+            fi
+            say "[runner] no guest start/completion artifact; stopping VM after uncertain launch"
+            exit "$rc"
+        fi
+        sleep 1
+    done
 fi
 
 while [[ ! -f "$HOST_RUN_DIR/exit_code" ]]; do

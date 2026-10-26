@@ -92,7 +92,7 @@ ghostvm-safe-testing/scripts/ghostvm_guest_ready.sh \
   --require-xcode-ui-testing
 ```
 
-`--require-ghosttools-prompts-clear` checks GhostTools installation, LaunchAgent/auto-start, auto-update, native `http`/`https` application handlers, and absence of CoreServicesUIAgent/UserNotificationCenter windows. Default-browser registration can enqueue multiple dialogs even when both handler lookups already report GhostTools; identity-regenerated clones can also surface guest account alerts. Clear them inside the owned guest, then verify a real XCTest launch and interaction before snapshotting. Run GhostTools once to answer the notification permission prompt on fresh guests.
+`--require-ghosttools-prompts-clear` checks GhostTools installation, LaunchAgent/auto-start, auto-update, native `http`/`https` application handlers, CoreServicesUIAgent and UserNotificationCenter windows, and a running Setup Assistant. Hidden onboarding can have no windows while still blocking normal LaunchAgents. Default-browser registration can enqueue multiple dialogs even when both handler lookups already report GhostTools; identity-regenerated clones can also surface guest account alerts. Clear them inside the owned guest, then verify a real XCTest launch and interaction before snapshotting. Run GhostTools once to answer the notification permission prompt on fresh guests.
 
 ### Rosetta 2 (optional)
 
@@ -107,6 +107,34 @@ Rosetta is only needed if you plan to run Intel-only tools/binaries.
 - `softwareupdate --install-rosetta --agree-to-license`
 
 > Apple has communicated future changes to Rosetta availability in later macOS majors; for long-lived “golden images,” periodically re-check whether you still need Intel-only toolchains.
+
+### Guest Python
+
+Provision Python only when the intended workload requires it. Check the actual job interpreter, not an inventory capability label or a successful `python3 --version`:
+
+```bash
+scripts/ghostvm_guest_ready.sh --vm <Disposable> --require-python 3.13
+# Or select a known versioned executable explicitly.
+scripts/ghostvm_guest_ready.sh --vm <Disposable> --require-python 3.13 \
+  --python /opt/homebrew/bin/python3.14
+```
+
+- Xcode's `/usr/bin/python3` can resolve to Python 3.9 even when Homebrew Python 3.14 is installed.
+- Homebrew's versioned formula puts generic `python3` links in `$(brew --prefix python@3.14)/libexec/bin`. Add that directory to the automation user's login PATH when generic commands should select it; check both `/bin/zsh -lc` and `/bin/bash -lc`. Keep explicit executable paths for non-shell Host API calls.
+- Native stdlib extensions must load too. In the evaluated macOS 26.2 snapshot, Python 3.14.4 printed its version but `plistlib` failed because `pyexpat` required an unavailable system expat symbol. Homebrew documents that these Tahoe bottles require macOS 26.3 or later: [upstream explanation](https://github.com/Homebrew/homebrew-core/issues/277330). Use a supported OS patch or a compatible interpreter distribution; do not make global `DYLD_LIBRARY_PATH` changes or patch packaged binaries merely to hide a baseline mismatch.
+- For a Python.org framework installation, complete its bundled `Install Certificates.command` setup before HTTPS workloads. Verify a nonempty `ssl.create_default_context().cert_store_stats()` and a bounded HTTPS request. The skill's Python gate checks version, imports, and XML/SQLite operations, not network trust. Keep the selected distribution explicit and unlink conflicting CLI entry points rather than overwriting another package manager's files.
+- Repair a clone and verify a cold boot before publishing the prepared snapshot. Record the OS build, interpreter path/version, and functional checks. Do not install into the host or a user's suspended current disk.
+
+### Automation User Profile
+
+Deferring a recurring account reminder does not establish a durable repair; a real XCTest can pass while an unrelated system alert still remains. Report native test results separately from unattended prompt readiness.
+
+- Preserve the original snapshot and current/suspended session. Do not revoke cloud credentials from a clone that shares them with the original.
+- Keep the existing local account, UID, profile, and hardware identity for scoped tooling repairs. Creating another account or replacing its home is not a routine prompt fix.
+- A replaced profile can run MiniBuddy and block normal LaunchAgents despite completed machine setup and auto-login. Copied preferences or zero visible windows do not prove onboarding is complete.
+- Verify GhostTools startup, native browser handlers, notification consent, AppleEvents, and an XCTest interaction after a fresh cold boot. Keep prompt detection enabled; do not suppress it to make readiness pass.
+- If a personal-account reminder persists, retain the diagnostic as a manual prerequisite rather than broadening the repair into account provisioning.
+- If a secondary guest transport is enabled temporarily for recovery, retain its original configuration and restore it before publishing. Do not modify host SSH, helper selection, or global Xcode settings.
 
 ---
 

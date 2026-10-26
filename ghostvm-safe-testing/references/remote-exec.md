@@ -75,7 +75,21 @@ Immediately after the VM boots (even if `/health` is already OK), `exec` can tra
 Error: Error Domain=NSPOSIXErrorDomain Code=54 "Connection reset by peer"
 ```
 
-Wait a few seconds and retry. The doctor and safe runner include a short retry loop for this.
+Doctor, preparation, and safe runs retry a fixed read-only guest probe for up to 120 seconds by default. Cold login and GhostTools startup can exceed 30 seconds. Override the readiness budget with `GHOSTVM_READY_TIMEOUT=<seconds>`; this is separate from the guest job's `--timeout`.
+
+For a running owned clone:
+
+```bash
+python3 scripts/ghostvm_remote_exec.py --socket <socket> --wait-ready 120
+```
+
+Each probe is bounded by the remaining deadline, with a maximum 10-second host request. Readiness requires both `exitCode: 0` and the expected probe output; an empty successful response is insufficient. This mode never retries a user-supplied command. Ordinary `ghostvm_remote_exec.py` requests have a 30-second host deadline, adjustable with `--timeout`; expiry does not prove the guest process stopped. Do not replay mutating commands after an uncertain transport result.
+
+Required guest readiness checks (Python, CLT, Xcode/Automation Mode, and the compound prompt scan) use `ghostvm_exec.sh --timeout 120` to send a 120-second guest deadline, with a bounded 135-second host request. Cold Xcode/LaunchServices/System Events queries can exceed 30 seconds. Increasing only the Python wrapper's host deadline cannot change the guest's default 30-second limit. Neither deadline extends the v3 guest transport's fixed idle limit.
+
+These checks require positive tool output as well as success and retain API/timeout diagnostics. The CLI can synthesize an empty zero-status result from a response without command fields; it is not capability evidence. A failed request is an unverified prerequisite, not proof that installed tools are absent.
+
+The safe runner publishes an atomic `job_started` marker before copying input or running the workload. If the short launch request fails, it waits up to 30 seconds (bounded by the job deadline) for that marker or `exit_code`; it never resends the launch. A confirmed job continues to its real completion status. Without either artifact, it stops the VM and restores the guard even with `--keep-running`, rather than leaving an unconfirmed job active.
 
 1. Confirm GhostTools is running as the logged-in user.
    - If auto-login is disabled and no user session is active, GhostTools won’t launch.

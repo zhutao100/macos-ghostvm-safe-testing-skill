@@ -11,7 +11,7 @@ Everything else exists to support that skill (scripts, assets, references).
 - `ghostvm-safe-testing/SKILL.md` — primary entrypoint (keep it concise; progressive disclosure)
 - `ghostvm-safe-testing/scripts/` — executable helpers used by agents
   - `ghostvm_doctor.sh` — host + VM sanity checks
-  - `ghostvm_guest_ready.sh` — guest dev-ready checks (CLT, optional Rosetta, optional GhostTools prompt readiness, optional Xcode UI-testing readiness)
+  - `ghostvm_guest_ready.sh` — guest dev-ready checks (CLT, optional functional Python/minimum version, Rosetta, GhostTools prompt readiness, Xcode UI-testing readiness)
   - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network defaults, Safari JavaScript-from-Apple-Events preference, baseline TCC rows, and Xcode UI-testing TCC candidates
   - `ghostvm_guest_tune_automation.py` — offline vanilla macOS tuning for disposable automation snapshots (updates, lock timing, Time Machine, Spotlight)
   - `ghostvm_automation_guard.py` — host-side preflight/apply/restore guard for GhostVM config and helper defaults
@@ -64,6 +64,8 @@ Everything else exists to support that skill (scripts, assets, references).
    - host `/health` is not guest readiness; require a parsed successful guest `exitCode`
    - pin v2/v3 selection with a private wrapper directory on `PATH`, not a global CLI replacement
    - keep long jobs detached with atomic artifact completion; an exec timeout does not override v3's transport idle limit
+   - use the shared `ghostvm_remote_exec.py --wait-ready` probe for startup gates; do not duplicate short shell retry loops or retry mutating guest commands
+   - validate the interpreter actually selected by the job, including native stdlib imports; `--version` and an inventory capability label do not establish functional Python
 
 6. **Prefer keeping VMs running when reuse is likely**
    - Use `--keep-running` for safe-test runs that are likely to need follow-up guest commands, log inspection, or iterative UI work.
@@ -72,16 +74,19 @@ Everything else exists to support that skill (scripts, assets, references).
 7. **Error handling policy**
    - Scripts should fail fast with concrete, actionable output.
    - When prerequisites are missing, print an "ACTION REQUIRED (human)" section.
+   - Do not edit a running Bash helper in place: its interpreter can read later blocks at stale file offsets. Stop/restore the owned run or test a separate staged copy.
 
 ## Local checks
 
 ### Static checks (no GhostVM required)
 
 ```bash
-bash -n ghostvm-safe-testing/scripts/*.sh
-python3 -m py_compile ghostvm-safe-testing/scripts/*.py
-python3 -m unittest discover -s ghostvm-safe-testing/tests -p 'test_*.py'
+python3 tools/check.py
 ```
+
+This checks every shell helper individually and captures noisy tests. Exercise changed CLI `--help` paths too. Keep native builds and UI tests inside owned disposable VMs, not on the host. Record exact native combinations and measured outcomes in `validation.json`.
+
+For explicitly requested prepared-snapshot repair, follow `ghostvm-safe-testing/references/runtime-compatibility.md#prepared-snapshot-maintenance`. Preserve backups outside snapshot discovery and never boot/revert/discard-suspend the user's original current state. Verify publication from a new clone and compare original disk/config/saved-memory metadata before finishing.
 
 ### Runtime checks (requires GhostVM)
 

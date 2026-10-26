@@ -31,8 +31,14 @@ class TestShellScriptSmoke(unittest.TestCase):
         self.assertIn("URLForApplicationToOpenURL", text)
         self.assertNotIn("com.apple.launchservices.secure.plist", text)
         self.assertIn("CoreServicesUIAgent UserNotificationCenter", text)
+        self.assertIn('UserNotificationCenter "Setup Assistant"', text)
+        self.assertIn('return "onboarding process is still running"', text)
         self.assertIn("count of windows of process processName", text)
         self.assertIn('blocking_windows="unknown"', text)
+        self.assertIn(
+            '"$EXEC_SH" --socket "$sock_path" --timeout 120 --argv /bin/zsh -lc "$ghosttools_prompt_check"',
+            text,
+        )
 
     def test_install_vmctl_wrapper_creates_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -214,7 +220,7 @@ class TestShellScriptSmoke(unittest.TestCase):
                 '          printf \'%s\\n\' \'{"exitCode":13,"stdout":"","stderr":"not ready"}\'\n'
                 "          exit 0\n"
                 "        fi\n"
-                '        printf \'%s\\n\' \'{"status":"ok","exitCode":0,"stdout":"","stderr":""}\'\n'
+                '        printf \'%s\\n\' \'{"status":"ok","exitCode":0,"stdout":"ok\\n","stderr":""}\'\n'
                 "        exit 0\n"
                 "        ;;\n"
                 "      *)\n"
@@ -233,8 +239,6 @@ class TestShellScriptSmoke(unittest.TestCase):
             env = dict(os.environ)
             env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
             env["GHOSTVM_TEST_STATE_DIR"] = str(state_dir)
-            env["GHOSTVM_DOCTOR_RETRY_SLEEP"] = "0"
-
             proc = subprocess.run(
                 [
                     "bash",

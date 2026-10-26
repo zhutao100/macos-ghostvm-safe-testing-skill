@@ -1,2 +1,3 @@
 .agents/skills/update-ghostvm-safe-testing-skill/assets/ghostvm_source_repo.config.json
 ghostvm-safe-testing/config/local-vms.json
+__pycache__/

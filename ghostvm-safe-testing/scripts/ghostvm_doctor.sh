@@ -183,6 +183,7 @@ else
         if sock_path="$(vmctl socket "$BUNDLE_PATH" 2>/dev/null)"; then
             break
         fi
+        sock_path=""
         if ! /bin/kill -0 "$START_PID" 2>/dev/null; then
             # vmctl start exited early (usually helper discovery / launch failure)
             break
@@ -207,23 +208,8 @@ fi
 # exec sanity: use absolute path
 say "[doctor] checking remote exec (may take a few seconds after /health)"
 REMOTE_EXEC_PY="$(dirname "$0")/ghostvm_remote_exec.py"
-deadline=$((SECONDS + 30))
-last_exec_err=""
-while [[ $SECONDS -lt $deadline ]]; do
-    set +e
-    exec_out="$(python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /usr/bin/uname -a 2>&1)"
-    rc=$?
-    set -e
-    if [[ $rc -eq 0 ]]; then
-        last_exec_err=""
-        break
-    fi
-    last_exec_err="$exec_out"
-    sleep "${GHOSTVM_DOCTOR_RETRY_SLEEP:-1}"
-done
-
-if [[ -n "$last_exec_err" ]]; then
-    action_required "Host /health works, but guest exec did not succeed.\nLast error:\n$last_exec_err\nSee: ghostvm-safe-testing/references/remote-exec.md"
+if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" --wait-ready "${GHOSTVM_READY_TIMEOUT:-120}"; then
+    action_required "Host /health works, but guest exec did not succeed. Wait for login and GhostTools initialization.\nSee: ghostvm-safe-testing/references/remote-exec.md"
 fi
 
 say "[doctor] ok: host health + successful guest exec"

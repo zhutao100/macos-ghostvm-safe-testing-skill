@@ -4,11 +4,13 @@ set -euo pipefail
 usage() {
     cat <<'USAGE'
 Usage:
-  ghostvm_guest_ready.sh --vm <Name> [--bundle /path/to/<Name>.GhostVM] [--root ~/VMs] [--require-rosetta] [--require-ghosttools-prompts-clear] [--require-xcode-ui-testing]
+  ghostvm_guest_ready.sh --vm <Name> [--bundle /path/to/<Name>.GhostVM] [--root ~/VMs] [--require-rosetta] [--require-ghosttools-prompts-clear] [--require-xcode-ui-testing] [--require-python <major.minor>] [--python <guest-executable>]
 
 Checks (inside the guest, via Host API):
   - Host helper /health followed by successful guest commands
   - Xcode Command Line Tools present (xcode-select -p)
+  - (optional) selected Python version and functional native stdlib imports
+    when --require-python is set; --python defaults to python3 in the guest login PATH
   - (optional) Rosetta present (pkgutil receipt) when --require-rosetta is set
   - (optional) GhostTools guest setup window prerequisites when
     --require-ghosttools-prompts-clear is set
@@ -41,6 +43,8 @@ ROOT_DIR="$HOME/VMs"
 REQUIRE_ROSETTA=0
 REQUIRE_GHOSTTOOLS_PROMPTS_CLEAR=0
 REQUIRE_XCODE_UI_TESTING=0
+REQUIRE_PYTHON=""
+GUEST_PYTHON="python3"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -68,6 +72,14 @@ while [[ $# -gt 0 ]]; do
             REQUIRE_XCODE_UI_TESTING=1
             shift
             ;;
+        --require-python)
+            REQUIRE_PYTHON="$2"
+            shift 2
+            ;;
+        --python)
+            GUEST_PYTHON="$2"
+            shift 2
+            ;;
         -h | --help)
             usage
             exit 0
@@ -77,6 +89,10 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ -n "$REQUIRE_PYTHON" && ! "$REQUIRE_PYTHON" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    action_required "--require-python must be a major.minor version, for example 3.13"
+fi
 
 if [[ -z "$BUNDLE_PATH" ]]; then
     [[ -n "$VM_NAME" ]] || action_required "Missing --vm <Name> (or pass --bundle)"
@@ -124,6 +140,7 @@ if ! vmctl remote --socket "$sock_path" health >/dev/null 2>&1; then
 fi
 
 REMOTE_EXEC_PY="$(dirname "$0")/ghostvm_remote_exec.py"
+EXEC_SH="$(dirname "$0")/ghostvm_exec.sh"
 
 # Determine guest arch.
 arch="$(python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /usr/bin/arch 2>/dev/null | tr -d '[:space:]' || true)"
@@ -144,11 +161,39 @@ check_warn() {
     missing=1
 }
 
+if [[ -n "$REQUIRE_PYTHON" ]]; then
+    python_check="$(
+        cat <<'PY'
+import sys
+minimum = tuple(map(int, sys.argv[1].split(".")))
+print("Python", sys.version.split()[0], "at", sys.executable, flush=True)
+if sys.version_info[:2] < minimum:
+    raise SystemExit("Python " + sys.argv[1] + "+ is required; select a modern guest interpreter")
+import bz2, ctypes, lzma, plistlib, sqlite3, ssl, xml.parsers.expat, zlib
+assert plistlib.loads(b"<plist version='1.0'><dict><key>ok</key><true/></dict></plist>") == {"ok": True}
+assert sqlite3.connect(":memory:").execute("select 1").fetchone() == (1,)
+print("Native stdlib imports and XML/SQLite operations OK")
+PY
+    )"
+    if python_report="$("$EXEC_SH" --socket "$sock_path" --timeout 120 --argv \
+        /bin/zsh -lc 'exec "$@"' _ "$GUEST_PYTHON" -c "$python_check" "$REQUIRE_PYTHON" 2>&1)" &&
+        [[ "$python_report" == *"Native stdlib imports and XML/SQLite operations OK"* ]]; then
+        check_ok "$python_report"
+    else
+        check_warn "Guest Python is too old, unavailable, or has broken stdlib dependencies"
+        printf '%s\n' "$python_report" >&2
+        say "  Fix the interpreter inside a disposable clone, recheck imports, then verify a cold boot before replacing the prepared snapshot."
+        say "  Homebrew versioned Python may require its libexec/bin on PATH or an explicit --python /opt/homebrew/bin/python3.X."
+    fi
+fi
+
 # Xcode CLT presence.
-if python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/usr/bin/xcode-select -p >/dev/null 2>&1" >/dev/null 2>&1; then
+if clt_report="$("$EXEC_SH" --socket "$sock_path" --timeout 120 --argv /usr/bin/xcode-select -p 2>&1)" &&
+    [[ "$clt_report" == /* ]]; then
     check_ok "Xcode Command Line Tools detected (xcode-select -p)"
 else
-    check_warn "Xcode Command Line Tools missing"
+    check_warn "Xcode Command Line Tools could not be verified (missing tools or failed guest request)"
+    [[ -z "$clt_report" ]] || printf '%s\n' "$clt_report" >&2
     say "  Fix (interactive): /usr/bin/xcode-select --install"
     say "  Fix (managed): install 'Command Line Tools for Xcode' via System Settings → Software Update (or softwareupdate label install)"
 fi
@@ -234,12 +279,15 @@ for scheme in http https; do
   fi
 done
 
-for consent_process in CoreServicesUIAgent UserNotificationCenter; do
+for consent_process in CoreServicesUIAgent UserNotificationCenter "Setup Assistant"; do
   blocking_windows="$(/usr/bin/osascript -e '
     on run argv
       set processName to item 1 of argv
       tell application "System Events"
         if exists process processName then
+          if processName is "Setup Assistant" then
+            return "onboarding process is still running"
+          end if
           return count of windows of process processName
         end if
         return 0
@@ -247,9 +295,9 @@ for consent_process in CoreServicesUIAgent UserNotificationCenter; do
     end run
   ' "$consent_process" 2>/dev/null)" || blocking_windows="unknown"
   if [[ "$blocking_windows" == "0" ]]; then
-    echo "[OK] No $consent_process consent/account windows remain"
+    echo "[OK] No $consent_process automation gate remains"
   else
-    echo "[MISSING] $consent_process windows: $blocking_windows; inspect the guest before UI tests"
+    echo "[MISSING] $consent_process gate: $blocking_windows; inspect the guest before UI tests"
     missing=1
   fi
 done
@@ -258,7 +306,8 @@ exit "$missing"
 GUESTSH
     )"
 
-    if ghosttools_prompt_report="$(python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "$ghosttools_prompt_check" 2>&1)"; then
+    # The CLI omits the guest deadline; send it explicitly for this compound scan.
+    if ghosttools_prompt_report="$("$EXEC_SH" --socket "$sock_path" --timeout 120 --argv /bin/zsh -lc "$ghosttools_prompt_check" 2>&1)"; then
         while IFS= read -r line; do
             [[ -n "$line" ]] && say "$line"
         done <<<"$ghosttools_prompt_report"
@@ -268,25 +317,27 @@ GUESTSH
         if [[ -n "$ghosttools_prompt_report" ]]; then
             printf '%s\n' "$ghosttools_prompt_report" | sed 's/^/  /' >&2
         fi
-        say "  Inspect CoreServicesUIAgent and UserNotificationCenter inside the disposable guest; resolve or defer blocking browser/account alerts before UI tests."
+        say "  Inspect CoreServicesUIAgent, UserNotificationCenter, and Setup Assistant inside the disposable guest; complete onboarding and resolve blocking browser/account alerts before UI tests."
         say "  Fix: inside the disposable guest, run GhostTools from /Applications once, enable Auto Start and Auto Update, set it as the default browser, answer the notification prompt, then snapshot."
         say "  Note: default-browser readiness prevents GhostTools Setup and URL forwarding prompts; notification authorization may still require one interactive approval on fresh macOS installs."
     fi
 fi
 
 if [[ $REQUIRE_XCODE_UI_TESTING -eq 1 ]]; then
-    if python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/usr/bin/xcodebuild -version >/dev/null 2>&1" >/dev/null 2>&1; then
+    if xcode_report="$("$EXEC_SH" --socket "$sock_path" --timeout 120 --argv /usr/bin/xcodebuild -version 2>&1)" &&
+        [[ "$xcode_report" == *"Xcode "* && "$xcode_report" == *"Build version "* ]]; then
         check_ok "xcodebuild is usable"
     else
-        check_warn "xcodebuild is not usable"
+        check_warn "xcodebuild could not be verified (missing tools or failed guest request)"
+        [[ -z "$xcode_report" ]] || printf '%s\n' "$xcode_report" >&2
         say "  Fix: install/select Xcode, then run scripts/ghostvm_prepare_headless_automation.sh --xcode-ui-testing"
     fi
 
-    automation_status="$(python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "command -v automationmodetool >/dev/null 2>&1 && automationmodetool 2>&1" 2>/dev/null || true)"
-    if [[ "$automation_status" == *"DOES NOT REQUIRE"* ]]; then
+    if automation_status="$("$EXEC_SH" --socket "$sock_path" --timeout 120 --argv /usr/bin/automationmodetool 2>&1)" &&
+        [[ "$automation_status" == *"DOES NOT REQUIRE"* ]]; then
         check_ok "Automation Mode does not require user authentication"
     else
-        check_warn "Automation Mode still requires user authentication or automationmodetool is unavailable"
+        check_warn "Automation Mode without authentication could not be verified"
         if [[ -n "$automation_status" ]]; then
             say "  automationmodetool output:"
             printf '%s
@@ -296,11 +347,11 @@ if [[ $REQUIRE_XCODE_UI_TESTING -eq 1 ]]; then
         say "    sudo /Users/Shared/ghostvm-safe-testing/ghostvm_guest_bootstrap_xcode_ui_testing.sh"
     fi
 
-    devtools_status="$(python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/zsh -lc "/usr/sbin/DevToolsSecurity -status 2>&1" 2>/dev/null || true)"
-    if [[ "$devtools_status" == *"enabled"* || "$devtools_status" == *"Enabled"* ]]; then
+    if devtools_status="$("$EXEC_SH" --socket "$sock_path" --timeout 120 --argv /usr/sbin/DevToolsSecurity -status 2>&1)" &&
+        [[ "$devtools_status" == *"enabled"* || "$devtools_status" == *"Enabled"* ]]; then
         check_ok "DevToolsSecurity is enabled"
     else
-        check_warn "DevToolsSecurity is not enabled"
+        check_warn "DevToolsSecurity could not be verified as enabled"
         if [[ -n "$devtools_status" ]]; then
             say "  DevToolsSecurity output: $devtools_status"
         fi

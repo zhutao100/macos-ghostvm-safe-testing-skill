@@ -51,6 +51,7 @@ class TestSafeTestOrdering(unittest.TestCase):
         self.assertIn("EXIT_CODE=\\$?", guest[i_cmd : i_cmd + 200])
         self.assertIn("trap 'job_exit=\\$?", guest)
         self.assertIn('/bin/mv -f "\\$RUN_DIR/exit_code.tmp" "\\$RUN_DIR/exit_code"', guest)
+        self.assertIn('/bin/mv -f "\\$RUN_DIR/job_started.tmp" "\\$RUN_DIR/job_started"', guest)
 
     def test_safe_runner_detects_virtiofs_mountpoint(self) -> None:
         text = SAFE_TEST_SH.read_text(encoding="utf-8")

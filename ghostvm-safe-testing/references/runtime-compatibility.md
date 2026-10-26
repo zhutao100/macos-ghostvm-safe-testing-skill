@@ -31,6 +31,21 @@ test ! -e "$disposable" &&
 
 Snapshot revert also clears the suspended flag, but a snapshot directory copied directly into a bundle may still carry it. Normal start provisions the clone's helper. Do not start the copied hardware identity concurrently with its source; use the release's identity-regenerating clone operation for a separately provisioned long-lived VM.
 
+## Prepared Snapshot Maintenance
+
+Use this path only when the user explicitly requests replacement of an existing prepared snapshot. Ordinary evaluations still create uniquely named clones without changing the source snapshot.
+
+1. Inventory the original with `doctor --no-start`. Record its stopped/suspended state, current config/identity checksums, disk and saved-memory metadata, and other snapshot metadata. A suspended original stays suspended throughout maintenance.
+2. Clone only the prepared snapshot as above. Clear a stale suspended flag on the clone, pin the intended helper release, and keep test CPU/memory bounded. Do not regenerate hardware identity for a repair that will be published back to the same source.
+3. Reproduce the missing capability in the clone. For Python, run `guest_ready --require-python <minimum>`; for UI workflows, use the prompt/Xcode readiness flags and verify real AppleEvents and an XCTest interaction. Application-specific tools/runtimes are not generic snapshot prerequisites unless the inventory claims them.
+4. Repair only the demonstrated problem. Export evidence; remove task-owned test projects, added credentials, installer payloads, and temporary jobs. Preserve the existing account/profile. Stop the clone and restore its automation guard before creating a new stopped-state candidate snapshot.
+5. Cold-boot the candidate through the safe runner and repeat the capability checks. Test successful and nonzero guest jobs, RO input/RW output, and guard restoration. A snapshot-create acknowledgement alone is not verification.
+6. Preserve the old prepared snapshot under a unique backup directory outside the VM's `Snapshots/` directory. Stage the verified candidate separately, compare its hardware model/machine identity with the old snapshot, and retain the original snapshot's resource policy and persistent share settings. The candidate must have `isSuspended: false` and no session shares.
+7. Replace only `Snapshots/<Prepared>` using same-filesystem directory renames, with rollback if publication fails. Never invoke source-bundle revert, discard-suspend, or start: those would affect the user's current disk/config/RAM rather than just the prepared recovery point. Preserve unrelated snapshots.
+8. Cold-boot a disposable clone of the published snapshot, then stop it and restore its guard. Compare the recorded original current state and unrelated snapshots; document the exact tested OS/tool versions, results, and limitations without machine-specific paths or credentials.
+
+Keep the previous snapshot backup until the user chooses its retention policy. Coarse snapshot replacement does not repair or migrate the original VM's suspended current session.
+
 ## macOS 27 Consent Stores
 
 macOS 27.0.1 uses user TCC databases under:

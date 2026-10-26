@@ -641,6 +641,7 @@ while [[ $SECONDS -lt $deadline ]]; do
     if sock_path="$(vmctl socket "$BUNDLE_PATH" 2>/dev/null)"; then
         break
     fi
+    sock_path=""
     if ! /bin/kill -0 "$START_PID" 2>/dev/null; then
         break
     fi
@@ -670,15 +671,8 @@ if [[ $health_ok -ne 1 ]]; then
     action_required "Host /health failed after waiting for the helper. Check GhostVMHelper and its socket. Last error:\n$last_health_err\nSee references/troubleshooting.md"
 fi
 
-deadline=$((SECONDS + 30))
-while [[ $SECONDS -lt $deadline ]]; do
-    if python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/echo ok >/dev/null 2>&1; then
-        break
-    fi
-    sleep 1
-done
-if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" /bin/echo ok >/dev/null 2>&1; then
-    action_required "Guest exec is not responding yet (even though host /health is OK). Wait for login + GhostTools initialization, then retry. See references/remote-exec.md"
+if ! python3 "$REMOTE_EXEC_PY" --socket "$sock_path" --wait-ready "${GHOSTVM_READY_TIMEOUT:-120}"; then
+    action_required "Guest exec is not responding yet (even though host /health is OK). Wait for login and GhostTools initialization, then retry.\nSee: references/remote-exec.md"
 fi
 
 shell_quote() {

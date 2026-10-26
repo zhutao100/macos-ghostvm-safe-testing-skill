@@ -15,6 +15,8 @@ It also includes a **disposable-VM preparation path** for guest automation that 
 
 macOS 27 preparation supports UID-selected protected TCC stores. With multiple GhostVM releases, pin the runtime without replacing the global CLI and treat disk-format, saved-memory, and guest-agent compatibility separately. See [Runtime Compatibility](ghostvm-safe-testing/references/runtime-compatibility.md) for verified boundaries and v3 beta transport workarounds.
 
+Cold guest login can outlast host `/health`. Doctor, preparation, and safe runs allow 120 seconds for successful guest exec, configurable with `GHOSTVM_READY_TIMEOUT`; this is separate from the guest job deadline. For Python jobs, run `ghostvm_guest_ready.sh --vm <Disposable> --require-python 3.13` and select `--python <guest-executable>` when necessary. Version output alone does not certify native stdlib dependencies.
+
 ## Repo contents
 
 - `ghostvm-safe-testing/` — the skill folder
@@ -295,6 +297,7 @@ output path. Command-generated artifacts under the copied project tree stay
 guest-local unless the command copies them to the RW share. For Xcode UI runs,
 include an explicit copy/`ditto` step for `.artifacts/ui` or the latest
 `.xcresult` into `/Volumes/My Shared Files/<rw-leaf>/...`.
+Build and summarize result bundles in guest-local storage before exporting them; the writable share is an artifact destination, not the build or result-database workspace.
 
 For repeated guest work, pass `--keep-running` to `ghostvm_safe_test.sh` when follow-up commands or inspection are likely. This avoids repeated VM bring-up and shutdown churn. The runner prints an `automation_state.json` path; when done, stop and restore with:
 
@@ -307,3 +310,9 @@ python3 ghostvm-safe-testing/scripts/ghostvm_automation_guard.py restore \
 Shared folders are persistent VM settings. The safe runner restores its pre-run config when it finishes; if manual setup adds session-scoped shares, especially temp or ephemeral host directories, remove those shares or restore the previous settings before wrapping up.
 
 If the doctor or runner reports a missing prerequisite (VM not found, GhostTools unreachable, snapshot missing, `vmctl` wrapper missing), fix it manually and re-run.
+
+For user-requested repairs of existing recovery points, follow [Prepared Snapshot Maintenance](ghostvm-safe-testing/references/runtime-compatibility.md#prepared-snapshot-maintenance). Validate a disposable clone, retain the previous snapshot outside active discovery, and replace only the prepared snapshot directory without touching the original current disk or saved RAM.
+
+## Development Checks
+
+Run `python3 tools/check.py` for quiet host-only shell/Python syntax checks and mocked tests. Run native builds, simulator work, and GUI interactions only inside an owned disposable VM. Record measured native verification in [validation.json](validation.json); do not treat mocked tests as Apple-framework verification.

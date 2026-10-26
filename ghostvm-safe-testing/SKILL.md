@@ -4,7 +4,7 @@ description: Use GhostVM/vmctl to run macOS tests in a disposable VM with snapsh
 license: MIT
 metadata:
   author: ghostvm-safe-testing-skill
-  version: "0.5.0"
+  version: "0.5.1"
   compatibility: macOS 15, 26, and 27 on Apple Silicon with GhostVM installed, a prepared .GhostVM bundle, GhostTools running in the guest, and Python 3 on the host.
 ---
 
@@ -45,7 +45,7 @@ scripts/install_vmctl_wrapper.sh --ghostvm-app /Applications/GhostVM.app
 
 GhostVM Host API requires normal helper start. Do not use `vmctl start --headless` for this skill’s remote-exec workflow.
 
-Pin the runtime through a private wrapper directory on `PATH` when multiple GhostVM releases are installed; do not replace the host's default CLI. Read [Runtime Compatibility](references/runtime-compatibility.md) before mixing v2/v3 helpers, guest agents, disk formats, or suspended state. `/health` checks only the host helper; require a successful guest JSON `exitCode`.
+Pin the runtime through a private wrapper directory on `PATH` when multiple GhostVM releases are installed; do not replace the host's default CLI. Read [Runtime Compatibility](references/runtime-compatibility.md) before mixing v2/v3 helpers, guest agents, disk formats, or suspended state. `/health` checks only the host helper; require a successful guest JSON `exitCode`. Doctor, preparation, and safe runs allow 120 seconds for cold guest initialization; set `GHOSTVM_READY_TIMEOUT` to override this bounded read-only readiness wait.
 
 ## Prepare an automation-ready snapshot
 
@@ -91,6 +91,8 @@ scripts/ghostvm_guest_ready.sh \
   --require-xcode-ui-testing
 ```
 
+For Python workflows, add `--require-python 3.13` (or the project's minimum). This checks the selected interpreter's version, native stdlib imports, and XML/SQLite operations, not just `--version`. Use `--python /opt/homebrew/bin/python3.14` to select a versioned guest executable. A working versioned interpreter does not establish that generic `python3` selects it; verify the actual login-shell command used by the job. Read [Guest Python](references/macos-dev-testing-ready.md#guest-python) for snapshot provisioning.
+
 Read deeper prep details only when needed:
 
 - `references/headless-automation-gating.md`
@@ -128,7 +130,7 @@ The runner:
 6. Waits for Host API socket, host `/health`, successful guest exec, and VirtioFS mounts.
 7. Verifies RO is not writable and RW is writable from inside the guest.
 8. Launches a detached guest job through a short REST request, copies the RO input into `/Users/Shared/ghostvm-safe-testing/<run-id>/input`, restores owner write bits, and runs the command there.
-9. Polls an atomically published `exit_code` artifact instead of keeping a REST request open. The job deadline stops the VM and restores its guard even with `--keep-running`.
+9. Polls an atomically published `exit_code` artifact instead of keeping a REST request open. After a lost launch acknowledgement, checks `job_started`/completion artifacts without replaying the command. Unconfirmed launch or job deadline stops the VM and restores its guard even with `--keep-running`.
 10. Exports logs, `exit_code`, `sw_vers.txt`, `uname.txt`, and optional git patch files to:
 
 ```text
@@ -185,6 +187,8 @@ scripts/ghostvm_prepare_headless_automation.sh ... --replace-snapshot
 
 When a target snapshot exists, pick a new name such as `automation-ready-YYYYMMDD` and tell the user which one was created.
 
+When the user explicitly requests repair of an existing prepared snapshot, follow [Prepared Snapshot Maintenance](references/runtime-compatibility.md#prepared-snapshot-maintenance). Repair and cold-boot a clone, preserve a backup outside active snapshot discovery, and replace only the prepared snapshot directory. Never revert or boot a suspended original to perform the repair.
+
 ## Failure handling
 
 Use `references/troubleshooting.md` when these occur:
@@ -204,7 +208,5 @@ python3 scripts/ghostvm_automation_guard.py inspect --bundle /path/to/<Name>.Gho
 ## Development checks for this skill repo
 
 ```bash
-bash -n ghostvm-safe-testing/scripts/*.sh
-python3 -m py_compile ghostvm-safe-testing/scripts/*.py
-python3 -m unittest discover -s ghostvm-safe-testing/tests -p 'test_*.py'
+python3 tools/check.py
 ```
