@@ -4,7 +4,7 @@ description: Use GhostVM/vmctl to run macOS tests in a disposable VM with snapsh
 license: MIT
 metadata:
   author: ghostvm-safe-testing-skill
-  version: "0.6.0"
+  version: "0.6.1"
   compatibility: macOS 15, 26, and 27 on Apple Silicon with GhostVM installed, a prepared .GhostVM bundle, GhostTools running in the guest, and Python 3 on the host.
 ---
 
@@ -188,6 +188,8 @@ scripts/ghostvm_prepare_headless_automation.sh ... --replace-snapshot
 When a target snapshot exists, pick a new name such as `automation-ready-YYYYMMDD` and tell the user which one was created.
 
 When the user explicitly requests repair of an existing prepared snapshot, follow [Prepared Snapshot Maintenance](references/runtime-compatibility.md#prepared-snapshot-maintenance). Repair and cold-boot a clone, preserve a backup outside active snapshot discovery, and replace only the prepared snapshot directory. Never revert or boot a suspended original to perform the repair.
+
+Explicit whole-VM replacement is a separate scope. When the user authorizes discarding the original current state, saved session, and snapshots without backups, follow [Whole-VM Consolidation](references/guest-os-upgrades.md#whole-vm-consolidation). Inspect newer candidate sessions before reverting, retain no obsolete backups, and report OS/CLI validation separately from unattended UI readiness.
 
 ## Upgrade A Guest OS
 

@@ -71,7 +71,7 @@ From repo root:
 python3 tools/check.py
 ```
 
-The check tool validates each shell helper independently and captures noisy test output. Exercise changed CLI help paths separately. For OS maintenance, use `ghostvm-safe-testing/references/guest-os-upgrades.md`, record exact native results in `validation.json`, and preserve original current disks and saved memory while replacing only explicitly requested prepared snapshots.
+The check tool validates each shell helper independently and captures noisy test output. Exercise changed CLI help paths separately. For OS maintenance, use `ghostvm-safe-testing/references/guest-os-upgrades.md` and record exact native results in `validation.json`. Prepared-snapshot repair preserves original current disks and saved memory; explicitly authorized whole-VM/no-backup consolidation replaces only the named originals and removes their obsolete states. Inspect newer candidate sessions before reverting and verify canonical destinations after replacement.
 
 4) **Re-run the verifier**
 

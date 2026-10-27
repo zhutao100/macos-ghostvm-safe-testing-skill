@@ -46,6 +46,8 @@ Use this path only when the user explicitly requests replacement of an existing 
 
 Keep the previous snapshot backup until the user chooses its retention policy. Coarse snapshot replacement does not repair or migrate the original VM's suspended current session.
 
+When the user instead explicitly requests replacing entire original VMs and discarding old states without backups, use [Whole-VM Consolidation](guest-os-upgrades.md#whole-vm-consolidation). That authorization permits removal of the named original current disks/saved sessions and obsolete histories; it does not permit deleting unrelated VMs or falsely certifying unattended readiness.
+
 For OS maintenance, read [Guest OS Upgrades](guest-os-upgrades.md). Full-installer package deployment is not OS installation; verify the restarted guest's version/build and usable RAM before publishing. Prepare from a newly upgraded base to avoid reverting away the upgrade.
 
 ## macOS 27 Consent Stores

@@ -71,6 +71,7 @@ Everything else exists to support that skill (scripts, assets, references).
    - for OS upgrades, follow `references/guest-os-upgrades.md`; do not use host IPSW restore or the reverting safe-test loop, and require target guest `sw_vers` plus healthy usable memory before publication
    - preparation reverts its base snapshot; after upgrading, create a new base rather than preparing from the old `clean-state`
    - guest exec is possible with a locked console; require an unlocked session and completed human-only Setup Assistant before UI validation or unattended snapshot publication
+   - before consolidating upgrade candidates, inspect newer current sessions rather than reverting away completed onboarding; cold readiness can differ from resumed readiness
 
 6. **Prefer keeping VMs running when reuse is likely**
    - Use `--keep-running` for safe-test runs that are likely to need follow-up guest commands, log inspection, or iterative UI work.
@@ -92,6 +93,8 @@ python3 tools/check.py
 This checks every shell helper individually and captures noisy tests. Exercise changed CLI `--help` paths too. Keep native builds and UI tests inside owned disposable VMs, not on the host. Record exact native combinations and measured outcomes in `validation.json`.
 
 For explicitly requested prepared-snapshot repair, follow `ghostvm-safe-testing/references/runtime-compatibility.md#prepared-snapshot-maintenance`. Preserve backups outside snapshot discovery and never boot/revert/discard-suspend the user's original current state. Verify publication from a new clone and compare original disk/config/saved-memory metadata before finishing.
+
+For explicitly authorized whole-VM replacement without backups, use `ghostvm-safe-testing/references/guest-os-upgrades.md#whole-vm-consolidation` instead. Replace only the named originals and histories, remove obsolete task clones, verify the canonical destinations, and update inventory capabilities honestly when GUI prerequisites remain blocked.
 
 ### Runtime checks (requires GhostVM)
 

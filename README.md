@@ -19,6 +19,8 @@ Cold guest login can outlast host `/health`. Doctor, preparation, and safe runs 
 
 For in-place guest updates, follow [Guest OS Upgrades](ghostvm-safe-testing/references/guest-os-upgrades.md). Upgrade a clone inside the guest, not through host IPSW restore, and verify its restarted OS/build and usable RAM with `ghostvm_guest_os_check.py` before replacing a prepared snapshot. The ordinary reverting safe-test loop is for post-upgrade verification, not the upgrade itself.
 
+For explicitly authorized replacement of entire original VMs without backups, follow [Whole-VM Consolidation](ghostvm-safe-testing/references/guest-os-upgrades.md#whole-vm-consolidation). Inspect newer candidate sessions first, verify the canonical replacements, remove obsolete states, and keep known UI limitations distinct from OS/CLI success.
+
 ## Repo contents
 
 - `ghostvm-safe-testing/` — the skill folder

@@ -5,7 +5,7 @@
 - Run Software Update or the full macOS installer inside an owned guest clone. Preserve its apps, account, data, hardware model, machine identifier, disk format, and paired GhostTools release.
 - `vmctl install` invokes IPSW restore installation, not a data-preserving upgrade. Do not run it against an existing environment. An `install --restore-image` option is not implemented by the evaluated v2 CLI.
 - Updating `restoreImagePath` or `lastInstallVersion` is not an upgrade. GhostVM's displayed installation metadata can remain stale; the running guest's `sw_vers` is authoritative.
-- Preserve the source VM's current disk and saved memory. For requested prepared-snapshot replacement, follow [Prepared Snapshot Maintenance](runtime-compatibility.md#prepared-snapshot-maintenance), including backups outside active snapshot discovery and a cold boot of the published replacement.
+- Preserve the source VM's current disk and saved memory by default. For requested prepared-snapshot replacement, follow [Prepared Snapshot Maintenance](runtime-compatibility.md#prepared-snapshot-maintenance), including backups outside active snapshot discovery and a cold boot of the published replacement. An explicit whole-VM replacement with no retained backups uses [Whole-VM Consolidation](#whole-vm-consolidation) instead.
 - Do not use `ghostvm_safe_test.sh` to perform an OS upgrade: its initial revert and deadline cleanup conflict with installer restarts. Use it for verification after installation.
 - Do not upgrade the host as an implicit remedy for a guest failure.
 
@@ -82,6 +82,7 @@ scripts/ghostvm_guest_ready.sh \
 
 - Require the target guest version/build after restart and again on a cold boot. Reject low usable RAM even when the desktop and target OS appear correct.
 - Verify retained accounts, Xcode/CLT, the actual selected Python's native imports, the intended GhostTools version, real AppleEvents, and an XCTest interaction. Account or consent dialogs remain failed unattended prerequisites, not successful readiness.
+- A required readiness request returning HTTP/guest 408 establishes an inconclusive transport check, not a missing interpreter or disabled developer mode. Retain the failed request, run the equivalent read-only tool checks in a detached artifact-producing job, and record both outcomes. Verify GUI prerequisites before an actual UI test; do not relabel the failed direct readiness command as successful or reinstall tools solely because of its timeout.
 - Retain preparation output, `/var/log/install.log`, and relevant guest update logs on failure. A full installer does not necessarily bypass a later boot/firmware failure.
 - Remove only task-owned installer payloads, workspaces, and detached jobs. Shut down cleanly from inside the guest; `vmctl stop` signals the helper and is not proof of orderly guest shutdown.
 - Restore temporary host configuration/defaults before creating the candidate. Keep original resource/share policy when publishing.
@@ -90,6 +91,21 @@ scripts/ghostvm_guest_ready.sh \
 - Back up and replace only the requested prepared snapshot after verification. Cold-boot a fresh clone of the published directory, run successful/nonzero jobs and RO/RW checks, restore its guard, then compare original current-state and unrelated-snapshot fingerprints.
 
 On failure, roll back the complete owned recovery point, including auxiliary storage. Do not transplant auxiliary storage from another disk state or patch fixed firmware offsets as a generic upgrade procedure.
+
+## Whole-VM Consolidation
+
+Use only when the user explicitly authorizes replacing the original current VM, its snapshots, and any saved session. A request to update a prepared snapshot alone does not grant this scope. Honor an explicit no-backups instruction rather than silently retaining old bundles or hidden snapshot copies.
+
+1. Reinventory all original and candidate bundles immediately before selection. Compare current disk/config/auxiliary-storage metadata with the retained checkpoints; inspect any newer current session before reverting it. Onboarding completed after the previous run belongs to the newer disk, not the older `onboarding-required` checkpoint.
+2. Select each candidate under its intended runtime and disk format. Verify actual OS/build, usable RAM, selected Python, and retained tools. Shut down inside the guest and capture a new matched stopped checkpoint if the current disk is preferable. Never pair an older checkpoint's auxiliary storage with the newer disk.
+3. Cold-boot that selected checkpoint with guarded RO/RW shares. Verify successful and nonzero job exits, configuration restoration, and GUI prerequisites before XCTest. A resumed unlocked session does not prove cold readiness: account reminders can recur after cold boot. Keep transport failures distinct from missing tools.
+4. Separate OS/CLI validation from unattended UI certification. Explicitly requested consolidation may retain a known GUI limitation, but must remove stale inventory claims of verified UI readiness. A historical name such as `automation-ready` is not certification; record the actual failed prerequisite and do not schedule unattended UI jobs against it.
+5. Stage only the matched `config.json`, `disk.img`, `HardwareModel.bin`, `MachineIdentifier.bin`, and `AuxiliaryStorage.bin`. Require `isSuspended: false`, no saved RAM, no session shares, and the intended resource policy. Compare the destination identity and disk format before replacement. Same-volume `cp -cR` avoids fully copying sparse/APFS-cloned disks.
+6. After selection checks pass, replace only the explicitly named canonical bundles. Keep the selected candidate until the canonical destination passes cold OS/memory and CLI checks; this is temporary staging, not retention of the discarded old original. Normal CLI start recreates the path/name-derived `Helper/`; do not carry an obsolete helper app into a renamed bundle.
+7. Retain only the requested final recovery points. Remove the obsolete originals, their saved RAM, superseded snapshot histories, task-owned clones, and staging directories. With no-backup scope, do not create a renamed old original or external snapshot backup. Preserve unrelated VMs and measurement evidence.
+8. Update the machine-local inventory to canonical paths, actual versions, remaining snapshots, and measured readiness. Verify those bundles through their pinned runtime, stop them, restore guards, and compare unrelated-VM fingerprints. If an unrelated VM is independently used during maintenance, record the observed changes and leave its newer state alone rather than reverting it to satisfy the baseline. No inventory field should continue directing agents to deleted upgrade clones.
+
+Do not overwrite completed onboarding by preparing from an earlier candidate. If further privacy preparation is necessary, first capture the completed current disk as the new base.
 
 ## Sources
 
