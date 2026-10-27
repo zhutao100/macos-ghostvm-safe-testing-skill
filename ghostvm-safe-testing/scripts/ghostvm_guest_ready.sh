@@ -13,7 +13,7 @@ Checks (inside the guest, via Host API):
     when --require-python is set; --python defaults to python3 in the guest login PATH
   - (optional) Rosetta present (pkgutil receipt) when --require-rosetta is set
   - (optional) GhostTools guest setup window prerequisites when
-    --require-ghosttools-prompts-clear is set
+    --require-ghosttools-prompts-clear is set, including an unlocked console session
   - (optional) Xcode UI testing readiness when --require-xcode-ui-testing is set:
     xcodebuild usable, Automation Mode does not require user authentication,
     and DevToolsSecurity is enabled.
@@ -279,6 +279,27 @@ for scheme in http https; do
   fi
 done
 
+gui_session_state="$(/usr/bin/osascript -l JavaScript -e '
+  function run() {
+    ObjC.import("CoreGraphics");
+    var ref = $.CGSessionCopyCurrentDictionary();
+    var session = ObjC.deepUnwrap(ObjC.castRefToObject(ref));
+    if (!session || !session.kCGSessionLoginDoneKey || !session.kCGSSessionOnConsoleKey) {
+      return "no-console-session";
+    }
+    var locked = session.CGSSessionScreenIsLocked;
+    if (locked === true || locked === 1) return "locked";
+    if (locked === undefined || locked === false || locked === 0) return "unlocked";
+    return "unknown-lock-state";
+  }
+' 2>/dev/null)" || gui_session_state="unknown"
+if [[ "$gui_session_state" == "unlocked" ]]; then
+  echo "[OK] Console GUI session is logged in and unlocked"
+else
+  echo "[MISSING] Console GUI session is $gui_session_state; unlock the guest before UI tests"
+  missing=1
+fi
+
 for consent_process in CoreServicesUIAgent UserNotificationCenter "Setup Assistant"; do
   blocking_windows="$(/usr/bin/osascript -e '
     on run argv
@@ -317,7 +338,7 @@ GUESTSH
         if [[ -n "$ghosttools_prompt_report" ]]; then
             printf '%s\n' "$ghosttools_prompt_report" | sed 's/^/  /' >&2
         fi
-        say "  Inspect CoreServicesUIAgent, UserNotificationCenter, and Setup Assistant inside the disposable guest; complete onboarding and resolve blocking browser/account alerts before UI tests."
+        say "  Unlock the guest and inspect CoreServicesUIAgent, UserNotificationCenter, and Setup Assistant; complete onboarding and resolve blocking browser/account alerts before UI tests."
         say "  Fix: inside the disposable guest, run GhostTools from /Applications once, enable Auto Start and Auto Update, set it as the default browser, answer the notification prompt, then snapshot."
         say "  Note: default-browser readiness prevents GhostTools Setup and URL forwarding prompts; notification authorization may still require one interactive approval on fresh macOS installs."
     fi

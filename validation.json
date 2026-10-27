@@ -1,20 +1,23 @@
 {
   "schema_version": 1,
   "validated_on": "2026-10-26",
-  "skill_version": "0.5.1",
+  "skill_version": "0.6.0",
   "host": {
     "macos": "26.7.1",
     "build": "25G241",
     "architecture": "arm64",
-    "python": "3.14.8"
+    "python": "3.14.8",
+    "chip": "Apple M4 Max",
+    "logical_cpus": 16,
+    "memory_bytes": 137438953472
   },
   "host_checks": {
     "command": "python3 tools/check.py",
-    "unit_tests_passed": 79,
+    "unit_tests_passed": 89,
     "unit_tests_failed": 0,
     "shell_syntax": "Every shell helper checked individually",
     "python_syntax": "All Python helpers and the check tool",
-    "skill_metadata": "skill-creator quick_validate.py passed",
+    "skill_metadata": "Production and repo-internal skills passed skill-creator quick_validate.py",
     "cli_help": [
       "ghostvm_remote_exec.py",
       "ghostvm_doctor.sh",
@@ -23,7 +26,14 @@
       "ghostvm_safe_test.sh",
       "tools/check.py"
     ],
-    "boundary": "Mocked host tests do not certify guest Apple frameworks"
+    "boundary": "Mocked host tests do not certify guest Apple frameworks",
+    "ghostvm_source_contracts_passed": 9,
+    "changed_cli_help": [
+      "ghostvm_guest_os_check.py",
+      "ghostvm_guest_ready.sh",
+      "ghostvm_guest_privacy_seed.py",
+      "verify_against_ghostvm_repo.py"
+    ]
   },
   "native_protocol": {
     "target": "Disposable clones of the published automation-ready snapshots",
@@ -52,7 +62,9 @@
     "required_readiness_request_guest_deadline_seconds": 120,
     "required_readiness_request_host_deadline_seconds": 135,
     "cold_readiness_timing_definition": "Readiness script wall time after the safe runner establishes guest exec; excludes boot",
-    "timing_definition": "xcresult summary finishTime minus startTime; not total boot/build duration"
+    "timing_definition": "xcresult summary finishTime minus startTime; not total boot/build duration",
+    "skill_version": "0.5.1",
+    "scope": "Previous verification of the still-published source snapshots; pending OS-maintenance results are separate"
   },
   "environments": [
     {
@@ -212,5 +224,202 @@
     "Rosetta is optional and was not required for these arm64 checks",
     "A screenshot attachment and a valid result bundle are not claims of visual inspection",
     "An unrelated account alert is retained as a failed prerequisite, not reclassified as a successful unattended check"
-  ]
+  ],
+  "guest_os_upgrades": {
+    "validated_on": "2026-10-26",
+    "status": "awaiting_human_onboarding_before_publication",
+    "release_selection": "Apple public security release information checked October 26, 2026: macOS 26.7.2 and 27.2",
+    "method": "Apple-signed full installer package deployed inside each owned guest, followed by detached startosinstall with the existing administrator and stdin authorization",
+    "timing_definition": "Host wall time from detached installer launch to the sampled target-version observation; includes preparation/restarts and up to one polling interval, not exact installer completion time",
+    "native_resources": {
+      "raw_upgrade": {
+        "cpus": 6,
+        "memory_gib": 16
+      },
+      "asif_upgrade": {
+        "cpus": 4,
+        "memory_gib": 12
+      },
+      "all_cold_checks": {
+        "cpus": 6,
+        "memory_gib": 16
+      }
+    },
+    "boundaries": {
+      "source_current_disks_configs_and_saved_memory": "Unchanged against pre-maintenance fingerprints",
+      "source_snapshots_replaced": false,
+      "source_vms_booted_reverted_or_discarded": false,
+      "host_os_upgraded": false,
+      "manual_firmware_patching": false,
+      "guest_accounts_provisioned": false,
+      "owned_guests_stopped": true,
+      "temporary_shares_and_helper_defaults_restored": true
+    },
+    "environments": [
+      {
+        "vm": "macos-26",
+        "source_macos": "26.2",
+        "source_build": "25C56",
+        "target_macos": "26.7.2",
+        "target_build": "25G332",
+        "disk_format": "RAW",
+        "ghostvm": "2.11.0",
+        "ghosttools": "2.11.0",
+        "installer_signature": "Verified signed Apple Software with Apple Root CA chain",
+        "upgrade_started_at": "2026-10-26T23:01:08.483812Z",
+        "target_observed_wall_seconds": 1495.8,
+        "memory_before": {
+          "configured_memory_bytes": 17179869184,
+          "memory_bytes": 17179869184,
+          "usable_memory_bytes": 1879031808,
+          "passed": false
+        },
+        "memory_after_upgrade": {
+          "configured_memory_bytes": 17179869184,
+          "memory_bytes": 17179869184,
+          "usable_memory_bytes": 17168564224,
+          "passed": true
+        },
+        "cold_boot": {
+          "macos": "26.7.2",
+          "build": "25G332",
+          "configured_memory_bytes": 17179869184,
+          "memory_bytes": 17179869184,
+          "usable_memory_bytes": 17168564224,
+          "minimum_usable_fraction": 0.8,
+          "passed": true,
+          "errors": [],
+          "warnings": []
+        },
+        "retained_account_tools_and_login_profile_hashes": "unchanged",
+        "functional_python": "passed",
+        "python": "3.14.9",
+        "xcode": "26.4",
+        "prepared_snapshot": "onboarding-required",
+        "source_automation_ready_replaced": false,
+        "unattended_prompt_readiness": "blocked_setup_assistant",
+        "cli_success_exit_code": 0,
+        "cli_nonzero_exit_code": 37,
+        "guard_restored": true,
+        "stopped": true,
+        "xcode_ui_test": {
+          "status": "not_run_after_failed_onboarding_prerequisite"
+        },
+        "observations": [
+          "The pre-existing 1.75 GiB usable-memory cap recovered to 15.99 GiB after the full installer upgrade; no manual firmware patching or host OS upgrade was required",
+          "The upgraded 26.7.2 user store remains legacy TCC; explicit --user-uid requests a protected store and must be omitted",
+          "One direct compound readiness scan and xcodebuild -version request returned guest status 408; a detached scan retained diagnostics and established an unlocked session with Setup Assistant still running"
+        ]
+      },
+      {
+        "vm": "macos-27",
+        "source_macos": "27.0.1",
+        "source_build": "26A434",
+        "target_macos": "27.2",
+        "target_build": "26B123",
+        "disk_format": "RAW",
+        "ghostvm": "2.11.0",
+        "ghosttools": "2.11.0",
+        "installer_signature": "Verified signed Apple Software with Apple Root CA chain",
+        "upgrade_started_at": "2026-10-26T23:09:46.489477Z",
+        "target_observed_wall_seconds": 771.7,
+        "memory_before": {
+          "configured_memory_bytes": 17179869184,
+          "memory_bytes": 17179869184,
+          "usable_memory_bytes": 17168564224,
+          "passed": true
+        },
+        "memory_after_upgrade": {
+          "configured_memory_bytes": 17179869184,
+          "memory_bytes": 17179869184,
+          "usable_memory_bytes": 17168564224,
+          "passed": true
+        },
+        "cold_boot": {
+          "macos": "27.2",
+          "build": "26B123",
+          "configured_memory_bytes": 17179869184,
+          "memory_bytes": 17179869184,
+          "usable_memory_bytes": 17168564224,
+          "minimum_usable_fraction": 0.8,
+          "passed": true,
+          "errors": [],
+          "warnings": []
+        },
+        "retained_account_tools_and_login_profile_hashes": "unchanged",
+        "functional_python": "passed",
+        "python": "3.14.8",
+        "xcode": "27.1",
+        "prepared_snapshot": "onboarding-required",
+        "source_automation_ready_replaced": false,
+        "unattended_prompt_readiness": "blocked_setup_assistant",
+        "cli_success_exit_code": 0,
+        "cli_nonzero_exit_code": 37,
+        "guard_restored": true,
+        "stopped": true,
+        "xcode_ui_test": {
+          "passed": 0,
+          "failed": 1,
+          "session_seconds": 88.13,
+          "failure": "Failed to activate application 'org.ghostvm.readiness.fixture' remained Running Background while the console was locked and Setup Assistant was present"
+        }
+      },
+      {
+        "vm": "macos-27-asif",
+        "source_macos": "27.0.1",
+        "source_build": "26A434",
+        "target_macos": "27.2",
+        "target_build": "26B123",
+        "disk_format": "ASIF",
+        "ghostvm": "3.0.20260601003045",
+        "ghosttools": "3.0.20260601003045",
+        "installer_signature": "Verified signed Apple Software with Apple Root CA chain",
+        "upgrade_started_at": "2026-10-26T23:30:33.549748Z",
+        "target_observed_wall_seconds": 787.7,
+        "memory_before": {
+          "configured_memory_bytes": 12884901888,
+          "memory_bytes": 12884901888,
+          "usable_memory_bytes": 12873596928,
+          "passed": true
+        },
+        "memory_after_upgrade": {
+          "configured_memory_bytes": 12884901888,
+          "memory_bytes": 12884901888,
+          "usable_memory_bytes": 12873596928,
+          "passed": true
+        },
+        "cold_boot": {
+          "macos": "27.2",
+          "build": "26B123",
+          "configured_memory_bytes": 17179869184,
+          "memory_bytes": 17179869184,
+          "usable_memory_bytes": 17168564224,
+          "minimum_usable_fraction": 0.8,
+          "passed": true,
+          "errors": [],
+          "warnings": []
+        },
+        "retained_account_tools_and_login_profile_hashes": "unchanged",
+        "functional_python": "passed",
+        "python": "3.14.8",
+        "xcode": "27.1",
+        "prepared_snapshot": "onboarding-required",
+        "source_automation_ready_replaced": false,
+        "unattended_prompt_readiness": "blocked_setup_assistant",
+        "cli_success_exit_code": 0,
+        "cli_nonzero_exit_code": 37,
+        "guard_restored": true,
+        "stopped": true,
+        "xcode_ui_test": {
+          "status": "not_run_after_failed_onboarding_prerequisite"
+        }
+      }
+    ],
+    "remaining_steps": [
+      "Human unlock and complete post-upgrade Setup Assistant in each retained owned clone",
+      "Preserve completed onboarding as a new stopped base before preparation or any reverting safe-test run",
+      "Repeat functional Python, unlocked/prompt/Xcode readiness, real AppleEvents/Safari JavaScript, and XCTest launch/click checks",
+      "Back up and replace only the requested source automation-ready snapshots; verify each publication from a fresh cold clone and recheck original current-state fingerprints"
+    ]
+  }
 }

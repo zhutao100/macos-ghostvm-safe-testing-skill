@@ -40,6 +40,35 @@ class TestShellScriptSmoke(unittest.TestCase):
             text,
         )
 
+    def test_guest_ready_requires_unlocked_console_acknowledgement(self) -> None:
+        text = GUEST_READY_SH.read_text()
+        self.assertIn("CGSessionCopyCurrentDictionary", text)
+        self.assertIn("ObjC.castRefToObject(ref)", text)
+        self.assertIn("CGSSessionScreenIsLocked", text)
+        start = text.index('if [[ "$gui_session_state" == "unlocked" ]]')
+        end = text.index("\nfi", start) + len("\nfi")
+        program = (
+            'set -euo pipefail\nmissing=0\ngui_session_state="$SESSION_STATE"\n'
+            + text[start:end]
+            + '\nexit "$missing"\n'
+        )
+        for value, expected in (
+            ("unlocked", 0),
+            ("locked", 1),
+            ("no-console-session", 1),
+            ("unknown", 1),
+            ("", 1),
+        ):
+            with self.subTest(value=value):
+                proc = subprocess.run(
+                    ["bash", "-c", program],
+                    env={**os.environ, "SESSION_STATE": value},
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                self.assertEqual(proc.returncode, expected, proc.stderr)
+
     def test_install_vmctl_wrapper_creates_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

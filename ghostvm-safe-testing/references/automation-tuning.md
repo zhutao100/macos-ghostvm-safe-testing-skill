@@ -27,6 +27,7 @@ The prep script invokes `ghostvm_guest_tune_automation.py` by default while the 
 Notes:
 
 - These are image-prep defaults for throwaway automation guests, not recommendations for a primary human workstation.
+- Skipping tuning leaves inherited preferences unchanged; it does not re-enable previously disabled updates. For deliberate guest updates, follow [Guest OS Upgrades](guest-os-upgrades.md) and prepare from a newly upgraded base afterward.
 - Offline plist edits are intentionally conservative. If a particular macOS release ignores one preference key, the corresponding System Settings state can still be verified once and captured in the prepared snapshot.
 - Host-side `caffeinate` is still useful for keeping the physical host awake while a long VM run is active, but it is not a substitute for guest idle/lock tuning.
 - Research anchors:
@@ -63,7 +64,7 @@ scripts/ghostvm_guest_ready.sh \
   --require-ghosttools-prompts-clear
 ```
 
-The check covers the source-backed setup-window gates: `/Applications/GhostTools.app`, the LaunchAgent plist, `org.ghostvm.ghosttools.autoStartEnabled`, `org.ghostvm.ghosttools.autoUpdateEnabled`, and `http`/`https` default-handler registration. Notification authorization is a macOS user prompt; answer it during one interactive GhostTools launch before taking the prepared snapshot.
+The check covers the source-backed setup-window gates: `/Applications/GhostTools.app`, the LaunchAgent plist, `org.ghostvm.ghosttools.autoStartEnabled`, `org.ghostvm.ghosttools.autoUpdateEnabled`, and `http`/`https` default-handler registration. It also requires an unlocked console and no Setup Assistant process. Guest exec can succeed behind a locked session, so transport readiness is not UI readiness. Notification authorization is a macOS user prompt; answer it during one interactive GhostTools launch before taking the prepared snapshot.
 
 Restore after a kept-running session:
 

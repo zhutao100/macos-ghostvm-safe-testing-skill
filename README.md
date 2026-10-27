@@ -17,6 +17,8 @@ macOS 27 preparation supports UID-selected protected TCC stores. With multiple G
 
 Cold guest login can outlast host `/health`. Doctor, preparation, and safe runs allow 120 seconds for successful guest exec, configurable with `GHOSTVM_READY_TIMEOUT`; this is separate from the guest job deadline. For Python jobs, run `ghostvm_guest_ready.sh --vm <Disposable> --require-python 3.13` and select `--python <guest-executable>` when necessary. Version output alone does not certify native stdlib dependencies.
 
+For in-place guest updates, follow [Guest OS Upgrades](ghostvm-safe-testing/references/guest-os-upgrades.md). Upgrade a clone inside the guest, not through host IPSW restore, and verify its restarted OS/build and usable RAM with `ghostvm_guest_os_check.py` before replacing a prepared snapshot. The ordinary reverting safe-test loop is for post-upgrade verification, not the upgrade itself.
+
 ## Repo contents
 
 - `ghostvm-safe-testing/` — the skill folder
@@ -27,6 +29,7 @@ Cold guest login can outlast host `/health`. Doctor, preparation, and safe runs 
   - `scripts/` — ready-to-run helpers
     - `install_vmctl_wrapper.sh` — put a `vmctl` wrapper on your `PATH` (recommended)
     - `ghostvm_doctor.sh` — sanity checks + actionable diagnostics
+    - `ghostvm_guest_os_check.py` — verify guest OS/build and usable RAM against configured memory
     - `ghostvm_configure_shares.py` — configure RO/RW shared folders by editing `config.json`
     - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network + baseline TCC, including Xcode UI-testing candidates
     - `ghostvm_guest_tune_automation.py` — offline vanilla macOS tuning for disposable automation snapshots

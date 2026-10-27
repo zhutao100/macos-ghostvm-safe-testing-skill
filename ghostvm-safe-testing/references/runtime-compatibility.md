@@ -46,9 +46,11 @@ Use this path only when the user explicitly requests replacement of an existing 
 
 Keep the previous snapshot backup until the user chooses its retention policy. Coarse snapshot replacement does not repair or migrate the original VM's suspended current session.
 
+For OS maintenance, read [Guest OS Upgrades](guest-os-upgrades.md). Full-installer package deployment is not OS installation; verify the restarted guest's version/build and usable RAM before publishing. Prepare from a newly upgraded base to avoid reverting away the upgrade.
+
 ## macOS 27 Consent Stores
 
-macOS 27.0.1 uses user TCC databases under:
+Observed user TCC databases on macOS 27.0.1 and 27.2 live under:
 
 ```text
 /private/var/containers/Data/ProtectedSystem/<container>/Data/Library/Application Support/com.apple.TCC/TCC.db

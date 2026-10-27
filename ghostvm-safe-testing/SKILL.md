@@ -4,7 +4,7 @@ description: Use GhostVM/vmctl to run macOS tests in a disposable VM with snapsh
 license: MIT
 metadata:
   author: ghostvm-safe-testing-skill
-  version: "0.5.1"
+  version: "0.6.0"
   compatibility: macOS 15, 26, and 27 on Apple Silicon with GhostVM installed, a prepared .GhostVM bundle, GhostTools running in the guest, and Python 3 on the host.
 ---
 
@@ -188,6 +188,12 @@ scripts/ghostvm_prepare_headless_automation.sh ... --replace-snapshot
 When a target snapshot exists, pick a new name such as `automation-ready-YYYYMMDD` and tell the user which one was created.
 
 When the user explicitly requests repair of an existing prepared snapshot, follow [Prepared Snapshot Maintenance](references/runtime-compatibility.md#prepared-snapshot-maintenance). Repair and cold-boot a clone, preserve a backup outside active snapshot discovery, and replace only the prepared snapshot directory. Never revert or boot a suspended original to perform the repair.
+
+## Upgrade A Guest OS
+
+Read [Guest OS Upgrades](references/guest-os-upgrades.md) before updating prepared snapshots. Use Software Update or a full installer inside a clone; host IPSW installation is a restore, not an in-place upgrade. Keep upgrade orchestration separate from the reverting safe-test loop.
+
+Verify the restarted guest's exact `sw_vers` and usable RAM with `ghostvm_guest_os_check.py --bundle <OwnedClone.GhostVM> --expect-version <version> --expect-build <build>`. Package deployment, cached GhostVM version metadata, and a visible desktop are not upgrade success. Prepare from a new upgraded base, then cold-boot the published snapshot and repeat tool/automation checks.
 
 ## Failure handling
 

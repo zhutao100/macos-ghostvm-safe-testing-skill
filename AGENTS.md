@@ -12,6 +12,7 @@ Everything else exists to support that skill (scripts, assets, references).
 - `ghostvm-safe-testing/scripts/` — executable helpers used by agents
   - `ghostvm_doctor.sh` — host + VM sanity checks
   - `ghostvm_guest_ready.sh` — guest dev-ready checks (CLT, optional functional Python/minimum version, Rosetta, GhostTools prompt readiness, Xcode UI-testing readiness)
+  - `ghostvm_guest_os_check.py` — read-only guest OS/build and usable-memory verification against the configured allocation
   - `ghostvm_guest_privacy_seed.py` — offline guest-disk seeding for Local Network defaults, Safari JavaScript-from-Apple-Events preference, baseline TCC rows, and Xcode UI-testing TCC candidates
   - `ghostvm_guest_tune_automation.py` — offline vanilla macOS tuning for disposable automation snapshots (updates, lock timing, Time Machine, Spotlight)
   - `ghostvm_automation_guard.py` — host-side preflight/apply/restore guard for GhostVM config and helper defaults
@@ -27,6 +28,7 @@ Everything else exists to support that skill (scripts, assets, references).
   - `headless-automation-gating.md` — rationale + operational patterns for TCC and Local Network gating
   - `macos-dev-testing-ready.md` — fresh macOS readiness checklist
   - `automation-tuning.md` — guest tuning and GhostVM host-side guard rationale
+  - `guest-os-upgrades.md` — in-guest upgrade boundaries, restart handling, OS/memory verification, and prepared-snapshot publication
   - `troubleshooting.md` — host/guest remediation steps
 - `.agents/skills/update-ghostvm-safe-testing-skill/` — repo-internal skill for keeping this repo in sync with a local GhostVM source checkout
 
@@ -66,6 +68,9 @@ Everything else exists to support that skill (scripts, assets, references).
    - keep long jobs detached with atomic artifact completion; an exec timeout does not override v3's transport idle limit
    - use the shared `ghostvm_remote_exec.py --wait-ready` probe for startup gates; do not duplicate short shell retry loops or retry mutating guest commands
    - validate the interpreter actually selected by the job, including native stdlib imports; `--version` and an inventory capability label do not establish functional Python
+   - for OS upgrades, follow `references/guest-os-upgrades.md`; do not use host IPSW restore or the reverting safe-test loop, and require target guest `sw_vers` plus healthy usable memory before publication
+   - preparation reverts its base snapshot; after upgrading, create a new base rather than preparing from the old `clean-state`
+   - guest exec is possible with a locked console; require an unlocked session and completed human-only Setup Assistant before UI validation or unattended snapshot publication
 
 6. **Prefer keeping VMs running when reuse is likely**
    - Use `--keep-running` for safe-test runs that are likely to need follow-up guest commands, log inspection, or iterative UI work.

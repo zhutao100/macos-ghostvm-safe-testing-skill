@@ -136,7 +136,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Guest UID selecting a macOS 27 protected TCC store. Repeatable. "
             "Obtain with id -u inside the guest; ownership-disabled host mounts "
-            "cannot reliably identify guest account UIDs."
+            "cannot reliably identify guest account UIDs. Omit for legacy home-directory stores."
         ),
     )
     ap.add_argument(
@@ -638,7 +638,16 @@ def existing_user_db_paths(
     if selected_uids:
         missing_uids = selected_uids - {uid for uid, _ in protected}
         if missing_uids:
-            raise SeedError(f"No protected TCC store found for guest UIDs: {sorted(missing_uids)}")
+            hint = ""
+            if (
+                not protected
+                and explicit_users
+                and all(user_db_for(name).is_file() for name in explicit_users)
+            ):
+                hint = "; selected users have legacy TCC stores: omit --user-uid and keep --user"
+            raise SeedError(
+                f"No protected TCC store found for guest UIDs: {sorted(missing_uids)}{hint}"
+            )
 
     if explicit_users:
         for name in explicit_users:

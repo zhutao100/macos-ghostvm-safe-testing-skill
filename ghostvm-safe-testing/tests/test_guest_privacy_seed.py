@@ -517,6 +517,16 @@ class TestGuestPrivacySeed(unittest.TestCase):
             with self.assertRaisesRegex(seed.SeedError, "No protected TCC store"):
                 seed.existing_user_db_paths(root, ["agent"], [999])
 
+    def test_uid_selection_explains_legacy_store_without_changing_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db = root / "Users/agent/Library/Application Support/com.apple.TCC/TCC.db"
+            self._make_modern_tcc_db(db)
+            paths, warnings = seed.existing_user_db_paths(root, ["agent"])
+            self.assertEqual((paths, warnings), ([db], []))
+            with self.assertRaisesRegex(seed.SeedError, "omit --user-uid and keep --user"):
+                seed.existing_user_db_paths(root, ["agent"], [501])
+
     def test_new_defaulted_tcc_column_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "TCC.db"

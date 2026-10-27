@@ -1,9 +1,9 @@
 ---
 name: update-ghostvm-safe-testing-skill
 description: Keep this repo's ghostvm-safe-testing skill accurate and up to date by validating against a local GhostVM source checkout (docs + Swift source) and then updating scripts/docs/tests to match current GhostVM behavior.
-compatibility: Requires a local checkout of groundwater/GhostVM on the same machine and basic CLI tools (bash, python3).
 metadata:
   version: "0.1.0"
+  compatibility: Requires a local checkout of groundwater/GhostVM on the same machine and basic CLI tools (bash, python3).
 ---
 
 # Update workflow for this repo (repo-internal skill)
@@ -68,10 +68,10 @@ If it reports failures, use the details to drive targeted edits.
 From repo root:
 
 ```bash
-bash -n ghostvm-safe-testing/scripts/*.sh
-python3 -m py_compile ghostvm-safe-testing/scripts/*.py
-python3 -m unittest discover -s ghostvm-safe-testing/tests -p 'test_*.py'
+python3 tools/check.py
 ```
+
+The check tool validates each shell helper independently and captures noisy test output. Exercise changed CLI help paths separately. For OS maintenance, use `ghostvm-safe-testing/references/guest-os-upgrades.md`, record exact native results in `validation.json`, and preserve original current disks and saved memory while replacing only explicitly requested prepared snapshots.
 
 4) **Re-run the verifier**
 

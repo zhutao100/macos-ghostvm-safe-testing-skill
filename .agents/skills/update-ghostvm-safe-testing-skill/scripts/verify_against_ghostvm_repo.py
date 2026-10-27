@@ -148,6 +148,24 @@ def _run_checks(*, ghostvm_repo: Path, skill_repo_root: Path) -> list[CheckResul
                 else "expected snapshot itemsToCopy to include config.json"
             ),
         )
+        source = _read_text(vmcontroller_swift)
+        boot_state = (
+            ("disk.img", "diskURL"),
+            ("HardwareModel.bin", "hardwareModelURL"),
+            ("MachineIdentifier.bin", "machineIdentifierURL"),
+            ("AuxiliaryStorage.bin", "auxiliaryStorageURL"),
+        )
+        ok = all(f'("{name}", layout.{attribute})' in source for name, attribute in boot_state)
+        add(
+            id="ghostvm.snapshots_include_matched_boot_state",
+            ok=ok,
+            detail="Snapshot recovery includes disk, hardware model, machine identity, and auxiliary storage",
+        )
+        add(
+            id="ghostvm.install_is_restore",
+            ok="VZMacOSInstaller(virtualMachine:" in source and "restoringFromImageAt:" in source,
+            detail="Host installation invokes the Virtualization.framework restore installer",
+        )
 
     # ---- Skill repo conformance checks ----
     skill_md = skill_repo_root / "ghostvm-safe-testing" / "SKILL.md"
